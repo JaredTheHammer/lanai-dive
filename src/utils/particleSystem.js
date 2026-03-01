@@ -3,13 +3,16 @@
  * wind flow as animated trails on a canvas overlay.
  *
  * Architecture:
- *  - ~300 particles drift across the viewport in the wind direction
+ *  - 50-500 particles drift across the viewport (density scales with wind speed)
  *  - Particles spawn at the upwind edge and are recycled when they exit
  *  - Motion blur via partial canvas clear each frame
  *  - Uniform wind field (single observation point)
  */
 
-const NUM_PARTICLES = 300;
+const MAX_PARTICLES = 500;     // Pool size (allocated once)
+const MIN_ACTIVE = 50;         // Active at 0 mph wind
+const MAX_ACTIVE = 500;        // Active at 30+ mph wind
+const SPEED_FOR_MAX = 30;      // mph at which we hit max density
 const MIN_LIFESPAN = 2000; // ms
 const MAX_LIFESPAN = 5000; // ms
 const TRAIL_COLOR = 'rgba(34, 211, 238, 0.45)'; // cyan-400 semi-transparent
@@ -27,6 +30,8 @@ export class WindParticleSystem {
     this.running = false;
     this.lastFrame = 0;
     this.rafId = null;
+    this.activeCount = MIN_ACTIVE;
+    this.targetActiveCount = MIN_ACTIVE;
   }
 
   /**
@@ -50,6 +55,12 @@ export class WindParticleSystem {
     // Screen coordinates: x = east, y = south (canvas y-axis is inverted)
     this.vx = baseSpeed * Math.sin(toRad);
     this.vy = -baseSpeed * Math.cos(toRad); // negative because canvas y is down for north
+
+    // Scale active particle count with wind speed (quadratic easing)
+    const speedFraction = Math.min(speedMph / SPEED_FOR_MAX, 1);
+    this.targetActiveCount = Math.round(
+      MIN_ACTIVE + (MAX_ACTIVE - MIN_ACTIVE) * (speedFraction * speedFraction)
+    );
   }
 
   /**
@@ -111,7 +122,7 @@ export class WindParticleSystem {
    */
   _initParticles() {
     this.particles = [];
-    for (let i = 0; i < NUM_PARTICLES; i++) {
+    for (let i = 0; i < MAX_PARTICLES; i++) {
       const p = this._spawnParticle();
       // Stagger initial positions by giving random initial life
       p.life = Math.random() * p.maxLife;
@@ -120,6 +131,7 @@ export class WindParticleSystem {
       p.y += (this.vy + p.vyJitter) * p.life;
       this.particles.push(p);
     }
+    this.activeCount = this.targetActiveCount;
   }
 
   /**
@@ -171,7 +183,17 @@ export class WindParticleSystem {
     const w = this.width;
     const h = this.height;
 
-    for (let i = 0; i < this.particles.length; i++) {
+    // Smoothly adjust active count toward target
+    if (this.activeCount !== this.targetActiveCount) {
+      const step = Math.max(1, Math.round(Math.abs(this.targetActiveCount - this.activeCount) * 0.05));
+      if (this.activeCount < this.targetActiveCount) {
+        this.activeCount = Math.min(this.activeCount + step, this.targetActiveCount);
+      } else {
+        this.activeCount = Math.max(this.activeCount - step, this.targetActiveCount);
+      }
+    }
+
+    for (let i = 0; i < this.activeCount; i++) {
       const p = this.particles[i];
       p.life += dt;
 
@@ -205,7 +227,8 @@ export class WindParticleSystem {
 
     // Draw particles as small dots
     ctx.fillStyle = TRAIL_COLOR;
-    for (const p of this.particles) {
+    for (let i = 0; i < this.activeCount; i++) {
+      const p = this.particles[i];
       // Fade in/out at edges of lifespan
       const lifeFrac = p.life / p.maxLife;
       const alpha = lifeFrac < 0.1

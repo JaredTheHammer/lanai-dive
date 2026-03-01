@@ -282,6 +282,32 @@ export default function MapView({ data }) {
             ))}
           </div>
         </div>
+
+        {/* Current speed legend: bottom-left, visible only when currents toggled on */}
+        {showCurrents && (
+          <div
+            className="absolute bottom-8 left-3 z-10 glass-card px-3 py-2"
+            style={{ marginLeft: 'env(safe-area-inset-left, 0px)' }}
+          >
+            <p className="text-[10px] text-white/40 mb-1">Current Speed (m/s)</p>
+            <div className="flex flex-col gap-1">
+              {[
+                ['#3b82f6', 'Calm', '< 0.05'],
+                ['#06b6d4', 'Gentle', '0.05-0.10'],
+                ['#22d3ee', 'Moderate', '0.10-0.20'],
+                ['#eab308', 'Notable', '0.20-0.35'],
+                ['#f97316', 'Strong', '0.35-0.50'],
+                ['#ef4444', 'V. Strong', '> 0.50'],
+              ].map(([color, label, range]) => (
+                <div key={label} className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+                  <span className="text-[10px] text-white/50">{label}</span>
+                  <span className="text-[10px] text-white/30 ml-auto">{range}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Bottom sheet: zone/site details with drag gestures */}
