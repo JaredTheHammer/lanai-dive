@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import Header from './components/Header.jsx';
-import DashboardView from './components/DashboardView.jsx';
-import MapView from './components/MapView.jsx';
-import ComparisonView from './components/ComparisonView.jsx';
+import LoadingFallback from './components/LoadingFallback.jsx';
 import NotificationSettings from './components/NotificationSettings.jsx';
+
+const DashboardView = React.lazy(() => import('./components/DashboardView.jsx'));
+const MapView = React.lazy(() => import('./components/MapView.jsx'));
+const ComparisonView = React.lazy(() => import('./components/ComparisonView.jsx'));
 import { fetchAllConditions } from './api/index.js';
 import { REFRESH_INTERVAL_MS } from './api/config.js';
 import useOfflineStatus, { cacheConditions, restoreCachedConditions } from './hooks/useOfflineStatus.js';
@@ -103,38 +105,42 @@ export default function App() {
       />
 
       {currentView === 'dashboard' && (
-        <div className="pb-8">
-          <DashboardView
-            data={data}
-            loading={loading}
-            error={error}
-            onRefresh={refresh}
-            trendGetRange={trends.getRange}
-          />
-        </div>
+        <Suspense fallback={<LoadingFallback />}>
+          <div className="pb-8">
+            <DashboardView
+              data={data}
+              loading={loading}
+              error={error}
+              onRefresh={refresh}
+              trendGetRange={trends.getRange}
+            />
+          </div>
+        </Suspense>
       )}
 
       {currentView === 'compare' && (
-        <div className="pb-8">
-          <ComparisonView
-            data={data}
-            zoneForecastScores={data?.zoneForecastScores}
-            onSelectZone={(zoneId) => {
-              // Switch to map view centered on the selected zone
-              setCurrentView('map');
-            }}
-          />
-        </div>
+        <Suspense fallback={<LoadingFallback />}>
+          <div className="pb-8">
+            <ComparisonView
+              data={data}
+              zoneForecastScores={data?.zoneForecastScores}
+              onSelectZone={(zoneId) => {
+                // Switch to map view centered on the selected zone
+                setCurrentView('map');
+              }}
+            />
+          </div>
+        </Suspense>
       )}
 
-      {currentView === 'map' && data && (
-        <MapView data={data} />
-      )}
-
-      {currentView === 'map' && !data && loading && (
-        <div className="flex items-center justify-center h-[calc(100vh-64px)]">
-          <div className="w-10 h-10 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-        </div>
+      {currentView === 'map' && (
+        <Suspense fallback={<LoadingFallback />}>
+          {data ? (
+            <MapView data={data} />
+          ) : loading ? (
+            <LoadingFallback />
+          ) : null}
+        </Suspense>
       )}
 
       {/* Offline with no cached data fallback */}

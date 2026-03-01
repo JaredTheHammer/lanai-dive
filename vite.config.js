@@ -76,6 +76,20 @@ export default defineConfig({
       }
     })
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('maplibre-gl') || id.includes('react-map-gl')) {
+            return 'maplibre';
+          }
+          if (id.includes('recharts') || id.includes('d3-')) {
+            return 'recharts';
+          }
+        }
+      }
+    }
+  },
   server: {
     proxy: {
       '/api/tides': {
