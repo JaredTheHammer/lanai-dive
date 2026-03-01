@@ -1,0 +1,93 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main, master]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: us-east-1
+      STACK_NAME: lanai-dive-prod
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+      - name: Get stack outputs
+        id: stack
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          get_output() {
+            aws cloudformation describe-stacks \
+              --stack-name "$STACK_NAME" --region "$AWS_REGION" \
+              --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
+              --output text
+          }
+          echo "bucket=$(get_output SiteBucketName)" >> "$GITHUB_OUTPUT"
+          echo "distribution_id=$(get_output DistributionId)" >> "$GITHUB_OUTPUT"
+          echo "push_url=$(get_output PushSubscribeUrl)" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        env:
+          VITE_API_BASE: ""
+          VITE_PUSH_SUBSCRIBE_URL: ${{ steps.stack.outputs.push_url }}
+          VITE_VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+        run: npm run build
+
+      - name: Deploy to S3
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          BUCKET="${{ steps.stack.outputs.bucket }}"
+
+          # Hashed assets: long-lived immutable cache
+          aws s3 sync dist/ "s3://${BUCKET}/" \
+            --delete \
+            --region "$AWS_REGION" \
+            --cache-control "public, max-age=31536000, immutable" \
+            --exclude "*.html" \
+            --exclude "sw.js" \
+            --exclude "manifest.webmanifest"
+
+          # HTML: must revalidate every request
+          aws s3 sync dist/ "s3://${BUCKET}/" \
+            --region "$AWS_REGION" \
+            --cache-control "no-cache" \
+            --exclude "*" \
+            --include "*.html"
+
+          # Service worker: must revalidate
+          aws s3 cp dist/sw.js "s3://${BUCKET}/sw.js" \
+            --region "$AWS_REGION" \
+            --cache-control "no-cache" \
+            2>/dev/null || true
+
+          # Manifest: short cache
+          aws s3 cp dist/manifest.webmanifest "s3://${BUCKET}/manifest.webmanifest" \
+            --region "$AWS_REGION" \
+            --cache-control "public, max-age=3600" \
+            2>/dev/null || true
+
+      - name: Invalidate CloudFront
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.stack.outputs.distribution_id }}" \
+            --paths "/*" \
+            --region "$AWS_REGION"
