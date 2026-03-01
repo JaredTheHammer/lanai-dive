@@ -5,10 +5,16 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Customized
 } from 'recharts';
 import { format } from 'date-fns';
 import { fetchSwellForecast } from '../api/swellforecast.js';
+
+const COMPASS_DIRS = ['N','NNE','NE','ENE','E','ESE','SE','SSE',
+                      'S','SSW','SW','WSW','W','WNW','NW','NNW'];
+function degreesToCompass(deg) {
+  return COMPASS_DIRS[Math.round(((deg % 360) + 360) % 360 / 22.5) % 16];
+}
 
 export default function SwellForecast() {
   const [forecast, setForecast] = useState(null);
@@ -118,22 +124,56 @@ export default function SwellForecast() {
             unit=" ft"
           />
           <Tooltip
-            contentStyle={{
-              background: 'rgba(12,25,41,0.95)',
-              border: '1px solid rgba(255,255,255,0.1)',
-              borderRadius: '8px',
-              fontSize: '12px',
-              color: '#fff',
-            }}
-            labelFormatter={(t) => format(new Date(t), 'EEE h:mm a')}
-            formatter={(val, name) => {
-              if (name === 'height') return [`${val} ft`, 'Height'];
-              if (name === 'period') return [`${val}s`, 'Period'];
-              return [val, name];
+            content={({ active, payload, label }) => {
+              if (!active || !payload?.length) return null;
+              const d = payload[0].payload;
+              return (
+                <div style={{
+                  background: 'rgba(12,25,41,0.95)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  color: '#fff',
+                  padding: '8px 12px',
+                }}>
+                  <p style={{ color: 'rgba(255,255,255,0.5)', marginBottom: 4 }}>
+                    {format(new Date(label), 'EEE h:mm a')}
+                  </p>
+                  <p>{d.height} ft @ {d.period}s</p>
+                  <p style={{ color: 'rgba(6,182,212,0.8)' }}>
+                    From {degreesToCompass(d.direction)} ({d.direction}&deg;)
+                  </p>
+                </div>
+              );
             }}
           />
           <ReferenceLine y={3} stroke="rgba(251,191,36,0.3)" strokeDasharray="3 3" />
           <ReferenceLine y={6} stroke="rgba(239,68,68,0.3)" strokeDasharray="3 3" />
+          <Customized
+            component={({ xAxisMap, yAxisMap }) => {
+              const xScale = xAxisMap && Object.values(xAxisMap)[0]?.scale;
+              const yScale = yAxisMap && Object.values(yAxisMap)[0]?.scale;
+              if (!xScale || !yScale || !chartData.length) return null;
+              const step = Math.max(1, Math.floor(chartData.length / 10));
+              return (
+                <g className="swell-direction-arrows">
+                  {chartData.filter((_, i) => i % step === 0).map((d, i) => {
+                    const cx = xScale(d.time);
+                    const cy = yScale(d.height);
+                    if (cx == null || cy == null || isNaN(cx) || isNaN(cy)) return null;
+                    return (
+                      <g key={i} transform={`translate(${cx}, ${cy - 14}) rotate(${d.direction})`}>
+                        <line x1="0" y1="-5" x2="0" y2="5"
+                              stroke="rgba(255,255,255,0.4)" strokeWidth="1" />
+                        <polygon points="0,-6 -2.5,-2 2.5,-2"
+                                 fill="rgba(6,182,212,0.65)" />
+                      </g>
+                    );
+                  })}
+                </g>
+              );
+            }}
+          />
           <Area
             type="monotone"
             dataKey="height"
@@ -147,7 +187,7 @@ export default function SwellForecast() {
       <div className="flex justify-between text-xs text-white/30 mt-1">
         <span>-72h</span>
         <span>Now</span>
-        <span className="text-[10px] text-white/20">3 ft / 6 ft reference lines</span>
+        <span className="text-[10px] text-white/20">3 ft / 6 ft ref lines &middot; arrows = swell direction</span>
       </div>
     </div>
   );
