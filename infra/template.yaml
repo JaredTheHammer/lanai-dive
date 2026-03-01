@@ -1,0 +1,325 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Lanai Dive Conditions PWA -- S3 + CloudFront + API proxy Lambda + Web Push
+
+# -------------------------------------------------------------------------
+# Parameters
+# -------------------------------------------------------------------------
+Parameters:
+  DomainName:
+    Type: String
+    Default: ''
+    Description: >
+      Custom domain (e.g. dive.lanai.app). Leave blank to use the
+      CloudFront *.cloudfront.net domain.
+  CertificateArn:
+    Type: String
+    Default: ''
+    Description: >
+      ACM certificate ARN in us-east-1 for the custom domain.
+      Required only when DomainName is set.
+  VapidPublicKey:
+    Type: String
+    Description: VAPID public key for Web Push (base64url)
+  VapidPrivateKey:
+    Type: String
+    NoEcho: true
+    Description: VAPID private key for Web Push (base64url)
+  VapidSubject:
+    Type: String
+    Default: 'mailto:jared.m.hamm@gmail.com'
+    Description: VAPID subject (mailto or URL)
+  Stage:
+    Type: String
+    Default: prod
+    AllowedValues: [prod, staging]
+
+Conditions:
+  HasCustomDomain: !Not [!Equals [!Ref DomainName, '']]
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 15
+    MemorySize: 256
+    Architectures: [arm64]
+
+# -------------------------------------------------------------------------
+# Resources
+# -------------------------------------------------------------------------
+Resources:
+
+  # --- S3: Static Site Hosting ---
+  SiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'lanai-dive-${Stage}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: CleanOldVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+      VersioningConfiguration:
+        Status: Enabled
+
+  SiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SiteBucket
+      PolicyDocument:
+        Statement:
+          - Sid: AllowCloudFrontOAC
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${SiteBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                'AWS:SourceArn': !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+
+  # --- CloudFront: CDN ---
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub 'lanai-dive-oac-${Stage}'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub 'Lanai Dive ${Stage}'
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        PriceClass: PriceClass_100
+        IPV6Enabled: true
+
+        Aliases:
+          !If
+            - HasCustomDomain
+            - [!Ref DomainName]
+            - !Ref 'AWS::NoValue'
+
+        ViewerCertificate:
+          !If
+            - HasCustomDomain
+            - AcmCertificateArn: !Ref CertificateArn
+              SslSupportMethod: sni-only
+              MinimumProtocolVersion: TLSv1.2_2021
+            - CloudFrontDefaultCertificate: true
+
+        # SPA fallback: 404 from S3 -> serve /index.html with 200
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+
+        Origins:
+          # Static site from S3
+          - Id: S3Origin
+            DomainName: !GetAtt SiteBucket.RegionalDomainName
+            OriginAccessControlId: !Ref OriginAccessControl
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+
+          # API proxy Lambda via Function URL
+          - Id: ApiOrigin
+            DomainName: !Select
+              - 2
+              - !Split ['/', !GetAtt ApiProxyFunctionUrl.FunctionUrl]
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              HTTPSPort: 443
+              OriginSSLProtocols: [TLSv1.2]
+
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+          Compress: true
+
+        CacheBehaviors:
+          # /api/* -> Lambda proxy (no caching at edge; the PWA does its own)
+          - PathPattern: /api/*
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # AllViewerExceptHostHeader
+            Compress: true
+
+          # Service worker: must not be cached at edge
+          - PathPattern: /sw.js
+            TargetOriginId: S3Origin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            Compress: true
+
+          # Manifest: short cache
+          - PathPattern: /manifest.webmanifest
+            TargetOriginId: S3Origin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            Compress: true
+
+  # --- API Proxy Lambda ---
+  ApiProxyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'lanai-dive-api-proxy-${Stage}'
+      Handler: index.handler
+      CodeUri: lambda-api-proxy/
+      Description: Proxy NOAA/NWS/NDBC APIs to avoid CORS issues
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+
+  ApiProxyFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt ApiProxyFunction.Arn
+      AuthType: NONE
+      Cors:
+        AllowOrigins: ['*']
+        AllowMethods: ['GET']
+        AllowHeaders: ['Content-Type']
+
+  ApiProxyFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiProxyFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+      FunctionUrlAuthType: NONE
+
+  # --- Web Push: Subscription Store (DynamoDB) ---
+  PushSubscriptionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'lanai-dive-push-subs-${Stage}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: endpoint
+          AttributeType: S
+      KeySchema:
+        - AttributeName: endpoint
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # --- Web Push: Condition Checker Lambda ---
+  PushNotifyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'lanai-dive-push-notify-${Stage}'
+      Handler: index.handler
+      CodeUri: lambda-push/
+      Timeout: 30
+      MemorySize: 512
+      Description: Poll conditions and send web push to subscribed users
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref PushSubscriptionsTable
+          VAPID_PUBLIC_KEY: !Ref VapidPublicKey
+          VAPID_PRIVATE_KEY: !Ref VapidPrivateKey
+          VAPID_SUBJECT: !Ref VapidSubject
+          STAGE: !Ref Stage
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PushSubscriptionsTable
+
+  # --- Scheduled Rule: Every 15 min ---
+  PushScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'lanai-dive-push-schedule-${Stage}'
+      Description: Poll conditions every 15 min and push notifications
+      ScheduleExpression: 'rate(15 minutes)'
+      State: ENABLED
+      Targets:
+        - Id: PushNotifyTarget
+          Arn: !GetAtt PushNotifyFunction.Arn
+
+  PushSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref PushNotifyFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt PushScheduleRule.Arn
+
+  # --- Push Subscription API (subscribe/unsubscribe) ---
+  PushSubscribeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'lanai-dive-push-subscribe-${Stage}'
+      Handler: subscribe.handler
+      CodeUri: lambda-push/
+      Description: Manage push subscription registration
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref PushSubscriptionsTable
+          VAPID_PUBLIC_KEY: !Ref VapidPublicKey
+          STAGE: !Ref Stage
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PushSubscriptionsTable
+
+  PushSubscribeFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt PushSubscribeFunction.Arn
+      AuthType: NONE
+      Cors:
+        AllowOrigins: ['*']
+        AllowMethods: ['POST', 'DELETE']
+        AllowHeaders: ['Content-Type']
+
+  PushSubscribeFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref PushSubscribeFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+      FunctionUrlAuthType: NONE
+
+# -------------------------------------------------------------------------
+# Outputs
+# -------------------------------------------------------------------------
+Outputs:
+  DistributionId:
+    Value: !Ref Distribution
+  DistributionDomain:
+    Value: !GetAtt Distribution.DomainName
+  SiteUrl:
+    Value: !If
+      - HasCustomDomain
+      - !Sub 'https://${DomainName}'
+      - !Sub 'https://${Distribution.DomainName}'
+  SiteBucketName:
+    Value: !Ref SiteBucket
+  ApiProxyUrl:
+    Value: !GetAtt ApiProxyFunctionUrl.FunctionUrl
+  PushSubscribeUrl:
+    Value: !GetAtt PushSubscribeFunctionUrl.FunctionUrl
+  PushSubscriptionsTableName:
+    Value: !Ref PushSubscriptionsTable

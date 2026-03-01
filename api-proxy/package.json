@@ -1,0 +1,6 @@
+{
+  "name": "lanai-dive-api-proxy",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Lambda proxy for NOAA/NWS/NDBC APIs (handles CORS)"
+}

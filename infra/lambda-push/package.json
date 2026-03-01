@@ -1,0 +1,10 @@
+{
+  "name": "lanai-dive-push",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "web-push": "^3.6.7",
+    "@aws-sdk/client-dynamodb": "^3.540.0",
+    "@aws-sdk/lib-dynamodb": "^3.540.0"
+  }
+}
