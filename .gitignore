@@ -31,3 +31,7 @@ coverage/
 # SAM build artifacts
 .aws-sam/
 samconfig.toml
+
+# Playwright
+playwright-report/
+test-results/

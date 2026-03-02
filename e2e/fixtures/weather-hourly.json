@@ -1,0 +1,79 @@
+{
+  "type": "Feature",
+  "properties": {
+    "periods": [
+      {
+        "number": 1,
+        "startTime": "2026-03-01T10:00:00-10:00",
+        "endTime": "2026-03-01T11:00:00-10:00",
+        "isDaytime": true,
+        "temperature": 78,
+        "temperatureUnit": "F",
+        "windSpeed": "12 mph",
+        "windDirection": "NE",
+        "shortForecast": "Mostly Sunny",
+        "probabilityOfPrecipitation": { "value": 10 }
+      },
+      {
+        "number": 2,
+        "startTime": "2026-03-01T11:00:00-10:00",
+        "endTime": "2026-03-01T12:00:00-10:00",
+        "isDaytime": true,
+        "temperature": 80,
+        "temperatureUnit": "F",
+        "windSpeed": "10 to 15 mph",
+        "windDirection": "ENE",
+        "shortForecast": "Sunny",
+        "probabilityOfPrecipitation": { "value": 5 }
+      },
+      {
+        "number": 3,
+        "startTime": "2026-03-01T12:00:00-10:00",
+        "endTime": "2026-03-01T13:00:00-10:00",
+        "isDaytime": true,
+        "temperature": 81,
+        "temperatureUnit": "F",
+        "windSpeed": "15 mph",
+        "windDirection": "E",
+        "shortForecast": "Mostly Sunny",
+        "probabilityOfPrecipitation": { "value": 15 }
+      },
+      {
+        "number": 4,
+        "startTime": "2026-03-01T13:00:00-10:00",
+        "endTime": "2026-03-01T14:00:00-10:00",
+        "isDaytime": true,
+        "temperature": 82,
+        "temperatureUnit": "F",
+        "windSpeed": "12 mph",
+        "windDirection": "E",
+        "shortForecast": "Partly Cloudy",
+        "probabilityOfPrecipitation": { "value": 20 }
+      },
+      {
+        "number": 5,
+        "startTime": "2026-03-01T14:00:00-10:00",
+        "endTime": "2026-03-01T15:00:00-10:00",
+        "isDaytime": true,
+        "temperature": 81,
+        "temperatureUnit": "F",
+        "windSpeed": "10 mph",
+        "windDirection": "ENE",
+        "shortForecast": "Partly Cloudy",
+        "probabilityOfPrecipitation": { "value": 25 }
+      },
+      {
+        "number": 6,
+        "startTime": "2026-03-01T15:00:00-10:00",
+        "endTime": "2026-03-01T16:00:00-10:00",
+        "isDaytime": true,
+        "temperature": 80,
+        "temperatureUnit": "F",
+        "windSpeed": "8 mph",
+        "windDirection": "NE",
+        "shortForecast": "Mostly Cloudy",
+        "probabilityOfPrecipitation": { "value": 30 }
+      }
+    ]
+  }
+}

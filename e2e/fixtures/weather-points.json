@@ -1,0 +1,10 @@
+{
+  "type": "Feature",
+  "properties": {
+    "gridId": "HFO",
+    "gridX": 153,
+    "gridY": 68,
+    "forecast": "https://api.weather.gov/gridpoints/HFO/153,68/forecast",
+    "forecastHourly": "https://api.weather.gov/gridpoints/HFO/153,68/forecast/hourly"
+  }
+}

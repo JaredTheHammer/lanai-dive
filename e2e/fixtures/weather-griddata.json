@@ -1,0 +1,15 @@
+{
+  "type": "Feature",
+  "properties": {
+    "quantitativePrecipitation": {
+      "values": [
+        { "validTime": "2026-02-28T06:00:00+00:00/PT6H", "value": 0.5 },
+        { "validTime": "2026-02-28T12:00:00+00:00/PT6H", "value": 0.0 },
+        { "validTime": "2026-02-28T18:00:00+00:00/PT6H", "value": 1.2 },
+        { "validTime": "2026-03-01T00:00:00+00:00/PT6H", "value": 0.0 },
+        { "validTime": "2026-03-01T06:00:00+00:00/PT6H", "value": 0.0 },
+        { "validTime": "2026-03-01T12:00:00+00:00/PT6H", "value": 0.0 }
+      ]
+    }
+  }
+}
