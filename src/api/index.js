@@ -6,7 +6,12 @@
 import { fetchTidePredictions, fetchTideExtremes, computeTideState } from './tides.js';
 import { fetchCurrentWind, fetchPrecipitation, fetchHourlyForecast } from './weather.js';
 import { fetchBuoyData } from './buoy.js';
-import { computeDiveScore, computeZoneScores, scoreWindForZone, scoreSwellForZone } from '../scoring/index.js';
+import {
+  computeDiveScore,
+  computeZoneScores,
+  scoreWindForZone,
+  scoreSwellForZone,
+} from '../scoring/index.js';
 import { LANAI_ZONES } from '../data/zones.js';
 import { getMoonPhase } from './moonphase.js';
 import {
@@ -33,7 +38,7 @@ export async function fetchAllConditions() {
       fetchCurrentWind(),
       fetchPrecipitation(),
       fetchBuoyData(),
-      fetchHourlyForecast()
+      fetchHourlyForecast(),
     ]);
 
   // --- Tides ---
@@ -46,7 +51,10 @@ export async function fetchAllConditions() {
     tideExtremes = extremeResult.value;
     tideState = computeTideState(tidePredictions, tideExtremes);
   } else {
-    errors.push({ source: 'tides', error: tideResult.reason?.message || extremeResult.reason?.message });
+    errors.push({
+      source: 'tides',
+      error: tideResult.reason?.message || extremeResult.reason?.message,
+    });
   }
 
   // --- Wind ---
@@ -60,7 +68,7 @@ export async function fetchAllConditions() {
       wind = {
         speedMph: buoyResult.value.windSpeed,
         directionDeg: buoyResult.value.windDirection || 45,
-        forecast: 'From buoy (NWS unavailable)'
+        forecast: 'From buoy (NWS unavailable)',
       };
     }
   }
@@ -68,9 +76,13 @@ export async function fetchAllConditions() {
   // --- Precipitation ---
   let precip = { rain24h: 0, rain48h: 0, currentlyRaining: false };
   if (precipResult.status === 'fulfilled') {
-    precip = precipResult.value;
+    precip = { ...precipResult.value, currentlyRaining: false };
   } else {
     errors.push({ source: 'precipitation', error: precipResult.reason?.message });
+  }
+  // Derive currentlyRaining from hourly forecast (avoids redundant fetch inside fetchPrecipitation)
+  if (hourlyResult.status === 'fulfilled' && hourlyResult.value.length > 0) {
+    precip.currentlyRaining = hourlyResult.value[0].isRaining;
   }
 
   // --- Buoy / Swell ---
@@ -81,7 +93,7 @@ export async function fetchAllConditions() {
       heightFt: b.waveHeight ?? 2,
       periodSec: b.dominantPeriod ?? 10,
       directionDeg: b.meanDirection ?? 180,
-      waterTempF: b.waterTemp
+      waterTempF: b.waterTemp,
     };
   } else {
     errors.push({ source: 'buoy', error: buoyResult.reason?.message });
@@ -107,7 +119,7 @@ export async function fetchAllConditions() {
     nextSlack: tideState.nextSlack,
     rain24h: precip.rain24h,
     rain48h: precip.rain48h,
-    currentlyRaining: precip.currentlyRaining
+    currentlyRaining: precip.currentlyRaining,
   };
 
   const score = computeDiveScore(conditions);
@@ -119,10 +131,22 @@ export async function fetchAllConditions() {
   const moonPhase = getMoonPhase();
 
   // Compute forecast scores for the timeline
-  const forecastScores = computeForecastTimeline(hourlyForecast, tideExtremes, tidePredictions, swell, precip);
+  const forecastScores = computeForecastTimeline(
+    hourlyForecast,
+    tideExtremes,
+    tidePredictions,
+    swell,
+    precip,
+  );
 
   // Per-zone forecast timelines
-  const zoneForecastScores = computeZoneForecastTimeline(hourlyForecast, tideExtremes, tidePredictions, swell, precip);
+  const zoneForecastScores = computeZoneForecastTimeline(
+    hourlyForecast,
+    tideExtremes,
+    tidePredictions,
+    swell,
+    precip,
+  );
 
   // --- Season & Species Annotations ---
   const now = new Date();
@@ -140,7 +164,7 @@ export async function fetchAllConditions() {
     const harvestable = getHarvestableSpeciesForZone(zoneId, now);
     zoneSpecies[zoneId] = {
       count: harvestable.length,
-      species: harvestable.map(s => ({
+      species: harvestable.map((s) => ({
         id: s.id,
         commonName: s.commonName,
         hawaiianName: s.hawaiianName,
@@ -164,7 +188,7 @@ export async function fetchAllConditions() {
     waterTemp: swell.waterTempF,
     buoyTime: buoyResult.status === 'fulfilled' ? buoyResult.value.time : null,
     errors,
-    fetchedAt: new Date()
+    fetchedAt: new Date(),
   };
 }
 
@@ -172,27 +196,43 @@ export async function fetchAllConditions() {
  * Project dive scores into the future based on hourly forecast data.
  * Returns array of { time, score, label, color } for the next 48 hours.
  */
-function computeForecastTimeline(hourlyForecast, tideExtremes, tidePredictions, currentSwell, currentPrecip) {
+function computeForecastTimeline(
+  hourlyForecast,
+  tideExtremes,
+  tidePredictions,
+  currentSwell,
+  currentPrecip,
+) {
   if (!hourlyForecast.length) return [];
 
-  return hourlyForecast.slice(0, 48).map(hour => {
+  return hourlyForecast.slice(0, 48).map((hour) => {
     // Find tide state at this hour
-    let tideLevel = 1.0, tideRate = 0, nextSlack = null;
+    let tideLevel = 1.0,
+      tideRate = 0,
+      nextSlack = null;
     if (tidePredictions.length) {
       const t = hour.time.getTime();
       for (let i = 0; i < tidePredictions.length - 1; i++) {
         if (tidePredictions[i].time.getTime() <= t && tidePredictions[i + 1].time.getTime() > t) {
-          const frac = (t - tidePredictions[i].time.getTime()) /
-                       (tidePredictions[i + 1].time.getTime() - tidePredictions[i].time.getTime());
-          tideLevel = tidePredictions[i].height + frac * (tidePredictions[i + 1].height - tidePredictions[i].height);
-          const dt = (tidePredictions[i + 1].time.getTime() - tidePredictions[i].time.getTime()) / 3600000;
+          const frac =
+            (t - tidePredictions[i].time.getTime()) /
+            (tidePredictions[i + 1].time.getTime() - tidePredictions[i].time.getTime());
+          tideLevel =
+            tidePredictions[i].height +
+            frac * (tidePredictions[i + 1].height - tidePredictions[i].height);
+          const dt =
+            (tidePredictions[i + 1].time.getTime() - tidePredictions[i].time.getTime()) / 3600000;
           tideRate = (tidePredictions[i + 1].height - tidePredictions[i].height) / dt;
           break;
         }
       }
-      nextSlack = tideExtremes.find(e => e.time.getTime() > t);
+      nextSlack = tideExtremes.find((e) => e.time.getTime() > t);
       if (nextSlack) {
-        nextSlack = { time: nextSlack.time, type: nextSlack.type === 'H' ? 'high' : 'low', level: nextSlack.height };
+        nextSlack = {
+          time: nextSlack.time,
+          type: nextSlack.type === 'H' ? 'high' : 'low',
+          level: nextSlack.height,
+        };
       }
     }
 
@@ -202,15 +242,15 @@ function computeForecastTimeline(hourlyForecast, tideExtremes, tidePredictions, 
     const conditions = {
       windSpeedMph: hour.windSpeedMph,
       windDirectionDeg: hour.windDirectionDeg,
-      swellHeightFt: currentSwell.heightFt,     // Swell doesn't change much hour-to-hour
+      swellHeightFt: currentSwell.heightFt, // Swell doesn't change much hour-to-hour
       swellPeriodSec: currentSwell.periodSec,
       swellDirectionDeg: currentSwell.directionDeg,
       tideLevel,
       tideRate,
       nextSlack,
-      rain24h: precipEst + currentPrecip.rain24h * 0.5,  // Decay previous rain
+      rain24h: precipEst + currentPrecip.rain24h * 0.5, // Decay previous rain
       rain48h: precipEst + currentPrecip.rain48h * 0.3,
-      currentlyRaining: hour.isRaining
+      currentlyRaining: hour.isRaining,
     };
 
     const result = computeDiveScore(conditions);
@@ -222,7 +262,7 @@ function computeForecastTimeline(hourlyForecast, tideExtremes, tidePredictions, 
       color: result.overallColor,
       wind: hour.windSpeedMph,
       forecast: hour.shortForecast,
-      isDaytime: hour.isDaytime
+      isDaytime: hour.isDaytime,
     };
   });
 }
@@ -231,7 +271,13 @@ function computeForecastTimeline(hourlyForecast, tideExtremes, tidePredictions, 
  * Per-zone forecast timeline: compute zone-specific scores for each forecast hour.
  * Returns { [zoneId]: [{ time, score, color, label, wind, forecast, isDaytime }] }
  */
-function computeZoneForecastTimeline(hourlyForecast, tideExtremes, tidePredictions, currentSwell, currentPrecip) {
+function computeZoneForecastTimeline(
+  hourlyForecast,
+  tideExtremes,
+  tidePredictions,
+  currentSwell,
+  currentPrecip,
+) {
   if (!hourlyForecast.length) return {};
 
   const result = {};
@@ -243,22 +289,32 @@ function computeZoneForecastTimeline(hourlyForecast, tideExtremes, tidePredictio
 
   for (const hour of hours) {
     // Find tide state at this hour (same logic as computeForecastTimeline)
-    let tideLevel = 1.0, tideRate = 0, nextSlack = null;
+    let tideLevel = 1.0,
+      tideRate = 0,
+      nextSlack = null;
     if (tidePredictions.length) {
       const t = hour.time.getTime();
       for (let i = 0; i < tidePredictions.length - 1; i++) {
         if (tidePredictions[i].time.getTime() <= t && tidePredictions[i + 1].time.getTime() > t) {
-          const frac = (t - tidePredictions[i].time.getTime()) /
-                       (tidePredictions[i + 1].time.getTime() - tidePredictions[i].time.getTime());
-          tideLevel = tidePredictions[i].height + frac * (tidePredictions[i + 1].height - tidePredictions[i].height);
-          const dt = (tidePredictions[i + 1].time.getTime() - tidePredictions[i].time.getTime()) / 3600000;
+          const frac =
+            (t - tidePredictions[i].time.getTime()) /
+            (tidePredictions[i + 1].time.getTime() - tidePredictions[i].time.getTime());
+          tideLevel =
+            tidePredictions[i].height +
+            frac * (tidePredictions[i + 1].height - tidePredictions[i].height);
+          const dt =
+            (tidePredictions[i + 1].time.getTime() - tidePredictions[i].time.getTime()) / 3600000;
           tideRate = (tidePredictions[i + 1].height - tidePredictions[i].height) / dt;
           break;
         }
       }
-      nextSlack = tideExtremes.find(e => e.time.getTime() > t);
+      nextSlack = tideExtremes.find((e) => e.time.getTime() > t);
       if (nextSlack) {
-        nextSlack = { time: nextSlack.time, type: nextSlack.type === 'H' ? 'high' : 'low', level: nextSlack.height };
+        nextSlack = {
+          time: nextSlack.time,
+          type: nextSlack.type === 'H' ? 'high' : 'low',
+          level: nextSlack.height,
+        };
       }
     }
 

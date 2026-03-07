@@ -98,11 +98,11 @@ sam delete --stack-name lanai-dive
 
 ## Data Sources
 
-| Source | Station | Update Freq | What it provides |
-|--------|---------|-------------|------------------|
-| NOAA CO-OPS | 1615680 (Kahului) | 6-min | Tide predictions |
-| NWS | HFO gridpoint | 1-hr | Wind, rain, forecast |
-| NDBC | 51213 (Lanai SW) | 30-min | Wave height, period, direction, water temp |
+| Source      | Station           | Update Freq | What it provides                           |
+| ----------- | ----------------- | ----------- | ------------------------------------------ |
+| NOAA CO-OPS | 1615680 (Kahului) | 6-min       | Tide predictions                           |
+| NWS         | HFO gridpoint     | 1-hr        | Wind, rain, forecast                       |
+| NDBC        | 51213 (Lanai SW)  | 30-min      | Wave height, period, direction, water temp |
 
 ## Scoring Algorithm
 
@@ -114,13 +114,12 @@ Composite 0-100 score with weighted factors:
 - **Rain/Runoff (20%)**: 24h/48h precipitation affecting visibility
 - **Visibility (15%)**: Derived estimate from rain, swell, wind, tide
 
-## Phase 2: Alerts (TODO)
+## Phase 2: Alerts (Implemented)
 
-Architecture for condition alerts:
+Push notification system using Web Push (VAPID):
 
-- EventBridge rule: every 30 min
-- Lambda: fetch conditions, compute score, compare to threshold
-- DynamoDB: subscriber table (email, phone, threshold preferences)
-- SNS: SMS notifications
-- SES: Email digests
-- API Gateway: subscriber management endpoints
+- **Client**: `src/push.js` handles subscription/unsubscription via the Push API
+- **Preferences UI**: `src/components/NotificationSettings.jsx` with threshold and quiet hours
+- **Hook**: `src/hooks/useNotifications.js` manages permission, preferences (localStorage), and threshold-based alerting
+- **Server**: Lambda Function URL for push subscription management
+- **Config**: `VITE_PUSH_SUBSCRIBE_URL` and `VITE_VAPID_PUBLIC_KEY` env vars

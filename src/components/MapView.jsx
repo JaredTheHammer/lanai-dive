@@ -25,8 +25,8 @@ import WindParticles from './WindParticles.jsx';
 
 const FACTOR_ORDER = ['wind', 'swell', 'tide', 'rain', 'visibility'];
 
-export default function MapView({ data }) {
-  const [selectedZoneId, setSelectedZoneId] = useState(null);
+export default function MapView({ data, initialZoneId = null }) {
+  const [selectedZoneId, setSelectedZoneId] = useState(initialZoneId);
   const [selectedSite, setSelectedSite] = useState(null);
   const [showBathymetry, setShowBathymetry] = useState(false);
   const [showCurrents, setShowCurrents] = useState(false);
@@ -45,15 +45,23 @@ export default function MapView({ data }) {
     setSelectedZoneId(null);
   }, []);
 
-  const { sheetRef, handleRef, snapTo, dismiss, initSheet } =
-    useBottomSheetGesture({ onDismiss: handleDismiss });
+  const { sheetRef, handleRef, snapTo, dismiss, initSheet } = useBottomSheetGesture({
+    onDismiss: handleDismiss,
+  });
+
+  // Auto-open panel when navigated from comparison view with a zone selected
+  useEffect(() => {
+    if (initialZoneId && zoneScores?.[initialZoneId]) {
+      setShowPanel(true);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load bathymetry GeoJSON on demand
   useEffect(() => {
     if (showBathymetry && !bathymetryData) {
       fetch('/data/lanai-bathymetry.geojson')
-        .then(r => r.ok ? r.json() : null)
-        .then(d => setBathymetryData(d))
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => setBathymetryData(d))
         .catch(() => setBathymetryData(null));
     }
   }, [showBathymetry, bathymetryData]);
@@ -62,7 +70,7 @@ export default function MapView({ data }) {
   useEffect(() => {
     if (showCurrents && !currentArrowsData) {
       fetchCurrents()
-        .then(data => setCurrentArrowsData(buildCurrentArrowsGeoJSON(data)))
+        .then((data) => setCurrentArrowsData(buildCurrentArrowsGeoJSON(data)))
         .catch(() => setCurrentArrowsData(null));
     }
   }, [showCurrents, currentArrowsData]);
@@ -79,9 +87,14 @@ export default function MapView({ data }) {
   const bestZone = sortedZones[0] || null;
 
   // Selected zone data
-  const selectedZoneData = selectedZoneId && zoneScores?.[selectedZoneId]
-    ? { id: selectedZoneId, ...zoneScores[selectedZoneId], sites: LANAI_ZONES[selectedZoneId]?.sites || [] }
-    : null;
+  const selectedZoneData =
+    selectedZoneId && zoneScores?.[selectedZoneId]
+      ? {
+          id: selectedZoneId,
+          ...zoneScores[selectedZoneId],
+          sites: LANAI_ZONES[selectedZoneId]?.sites || [],
+        }
+      : null;
 
   // Initialize bottom sheet when panel opens
   useEffect(() => {
@@ -141,9 +154,13 @@ export default function MapView({ data }) {
               <span className="text-lg">{moonPhase.emoji}</span>
               <div className="text-xs">
                 <p className="text-white/80 font-medium">{moonPhase.name}</p>
-                <p className="text-white/40 hidden md:block">{moonPhase.illumination}% illuminated</p>
+                <p className="text-white/40 hidden md:block">
+                  {moonPhase.illumination}% illuminated
+                </p>
                 {moonPhase.tidalNote && (
-                  <p className="text-cyan-400/70 text-[10px] hidden md:block">{moonPhase.tidalNote}</p>
+                  <p className="text-cyan-400/70 text-[10px] hidden md:block">
+                    {moonPhase.tidalNote}
+                  </p>
                 )}
               </div>
             </div>
@@ -184,8 +201,18 @@ export default function MapView({ data }) {
           {conditions && (
             <div className="glass-card px-3 py-2 min-h-[44px] flex items-center">
               <div className="flex items-center gap-2">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 text-cyan-300">
-                  <path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2" strokeLinecap="round" strokeLinejoin="round"/>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="w-4 h-4 text-cyan-300"
+                >
+                  <path
+                    d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
                 <span className="text-xs text-white/70">
                   {Math.round(conditions.windSpeedMph)} mph{' '}
@@ -197,10 +224,14 @@ export default function MapView({ data }) {
           )}
 
           {/* Lobster season badge -- 44px min height */}
-          <div className={`glass-card px-3 py-2 min-h-[44px] flex items-center ${lobsterStatus.inSeason ? '' : 'opacity-70'}`}>
+          <div
+            className={`glass-card px-3 py-2 min-h-[44px] flex items-center ${lobsterStatus.inSeason ? '' : 'opacity-70'}`}
+          >
             <div className="flex items-center gap-2">
               <span className="text-sm">{lobsterStatus.inSeason ? '\u{1F99E}' : '\u{1F6AB}'}</span>
-              <span className={`text-[10px] font-medium ${lobsterStatus.inSeason ? 'text-green-400' : 'text-red-400'}`}>
+              <span
+                className={`text-[10px] font-medium ${lobsterStatus.inSeason ? 'text-green-400' : 'text-red-400'}`}
+              >
                 {lobsterStatus.inSeason ? 'Lobster Open' : 'Lobster Closed'}
               </span>
             </div>
@@ -229,7 +260,10 @@ export default function MapView({ data }) {
               <span className="text-sm font-bold" style={{ color: bestZone.overallColor }}>
                 {bestZone.zone.name}
               </span>
-              <span className="text-sm font-bold tabular-nums" style={{ color: bestZone.overallColor }}>
+              <span
+                className="text-sm font-bold tabular-nums"
+                style={{ color: bestZone.overallColor }}
+              >
                 {bestZone.overall}
               </span>
             </button>
@@ -241,7 +275,7 @@ export default function MapView({ data }) {
           className="absolute top-3 right-3 z-10 flex flex-col gap-1.5 max-h-[60vh] overflow-y-auto"
           style={{ paddingRight: 'env(safe-area-inset-right, 0px)' }}
         >
-          {sortedZones.map(zone => (
+          {sortedZones.map((zone) => (
             <button
               key={zone.id}
               onClick={() => handleZoneSelect(zone.id)}
@@ -327,21 +361,36 @@ export default function MapView({ data }) {
 
           {/* Close button -- 44px touch target */}
           <button
-            onClick={() => { dismiss(); }}
+            onClick={() => {
+              dismiss();
+            }}
             className="absolute top-2 right-3 p-3 rounded-full touch-active min-w-[44px] min-h-[44px] flex items-center justify-center"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5 text-white/40">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="w-5 h-5 text-white/40"
+            >
               <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
 
           {/* Scrollable content area */}
-          <div data-sheet-content className="overflow-y-hidden overscroll-contain px-4 pb-6" style={{ maxHeight: 'calc(90vh - 64px - 44px)' }}>
+          <div
+            data-sheet-content
+            className="overflow-y-hidden overscroll-contain px-4 pb-6"
+            style={{ maxHeight: 'calc(90vh - 64px - 44px)' }}
+          >
             {/* Zone header */}
             <div className="flex items-center gap-3 mb-3">
               <div
                 className="w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold"
-                style={{ backgroundColor: selectedZoneData.overallColor + '20', color: selectedZoneData.overallColor }}
+                style={{
+                  backgroundColor: selectedZoneData.overallColor + '20',
+                  color: selectedZoneData.overallColor,
+                }}
               >
                 {selectedZoneData.overall}
               </div>
@@ -359,7 +408,7 @@ export default function MapView({ data }) {
 
             {/* Factor cards (reused from dashboard) */}
             <div className="space-y-2 mb-3">
-              {FACTOR_ORDER.map(name => (
+              {FACTOR_ORDER.map((name) => (
                 <ConditionCard
                   key={name}
                   name={name}
@@ -376,7 +425,7 @@ export default function MapView({ data }) {
                   In-Season Species ({zoneSpecies[selectedZoneId].count})
                 </h4>
                 <div className="flex flex-wrap gap-1">
-                  {zoneSpecies[selectedZoneId].species.slice(0, 12).map(s => (
+                  {zoneSpecies[selectedZoneId].species.slice(0, 12).map((s) => (
                     <span
                       key={s.id}
                       className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-white/50"
@@ -398,20 +447,20 @@ export default function MapView({ data }) {
               <div>
                 <h4 className="text-xs text-white/40 uppercase tracking-wider mb-2">Dive Sites</h4>
                 <div className="space-y-2">
-                  {selectedZoneData.sites.map(site => (
-                    <div
-                      key={site.id}
-                      className="glass-card p-3 flex items-start gap-3"
-                    >
-                      <span className={`w-2.5 h-2.5 mt-1 rounded-full flex-shrink-0 ${
-                        site.difficulty === 'beginner' ? 'bg-green-500' :
-                        site.difficulty === 'intermediate' ? 'bg-yellow-500' : 'bg-red-500'
-                      }`} />
+                  {selectedZoneData.sites.map((site) => (
+                    <div key={site.id} className="glass-card p-3 flex items-start gap-3">
+                      <span
+                        className={`w-2.5 h-2.5 mt-1 rounded-full flex-shrink-0 ${
+                          site.difficulty === 'beginner'
+                            ? 'bg-green-500'
+                            : site.difficulty === 'intermediate'
+                              ? 'bg-yellow-500'
+                              : 'bg-red-500'
+                        }`}
+                      />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium">{site.name}</p>
-                        <p className="text-xs text-white/40">
-                          {site.description}
-                        </p>
+                        <p className="text-xs text-white/40">{site.description}</p>
                         <p className="text-xs text-white/30 mt-0.5">
                           {site.difficulty} | {site.maxDepth} ft max
                         </p>
@@ -426,17 +475,30 @@ export default function MapView({ data }) {
       )}
 
       {/* Species Guide overlay */}
-      <SpeciesGuide
-        isOpen={showSpeciesGuide}
-        onClose={() => setShowSpeciesGuide(false)}
-      />
+      <SpeciesGuide isOpen={showSpeciesGuide} onClose={() => setShowSpeciesGuide(false)} />
     </div>
   );
 }
 
 // Inline helper (same as scoring module)
 function degreesToCompass(deg) {
-  const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
-                'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
-  return dirs[Math.round(((deg % 360) + 360) % 360 / 22.5) % 16];
+  const dirs = [
+    'N',
+    'NNE',
+    'NE',
+    'ENE',
+    'E',
+    'ESE',
+    'SE',
+    'SSE',
+    'S',
+    'SSW',
+    'SW',
+    'WSW',
+    'W',
+    'WNW',
+    'NW',
+    'NNW',
+  ];
+  return dirs[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
 }
