@@ -15,7 +15,20 @@ import {
   computeDiveScore,
   computeZoneScores,
   getOverallLabel,
+  scoreWindForZone,
+  scoreSwellForZone,
   WEIGHTS,
+  VIS_WEIGHTS,
+  SCORE_EXCELLENT,
+  SCORE_GOOD,
+  SCORE_FAIR,
+  SCORE_POOR,
+  PRECIP_PROB_LIKELY,
+  PRECIP_PROB_CHANCE,
+  PRECIP_EST_LIKELY,
+  PRECIP_EST_CHANCE,
+  RAIN_DECAY_24H,
+  RAIN_DECAY_48H,
 } from './index.js';
 
 // ---------------------------------------------------------------------------
@@ -214,7 +227,12 @@ describe('scoreRain', () => {
 // ---------------------------------------------------------------------------
 describe('scoreVisibility', () => {
   it('excellent when all factors are high', () => {
-    const result = scoreVisibility({ rainScore: 100, swellScore: 100, windScore: 100, tideScore: 100 });
+    const result = scoreVisibility({
+      rainScore: 100,
+      swellScore: 100,
+      windScore: 100,
+      tideScore: 100,
+    });
     expect(result.score).toBe(100);
     expect(result.label).toBe('Excellent');
   });
@@ -226,20 +244,45 @@ describe('scoreVisibility', () => {
   });
 
   it('weights rain most heavily (0.40)', () => {
-    const goodRain = scoreVisibility({ rainScore: 100, swellScore: 50, windScore: 50, tideScore: 50 }).score;
-    const badRain = scoreVisibility({ rainScore: 0, swellScore: 50, windScore: 50, tideScore: 50 }).score;
+    const goodRain = scoreVisibility({
+      rainScore: 100,
+      swellScore: 50,
+      windScore: 50,
+      tideScore: 50,
+    }).score;
+    const badRain = scoreVisibility({
+      rainScore: 0,
+      swellScore: 50,
+      windScore: 50,
+      tideScore: 50,
+    }).score;
     // Difference should be ~40 points (rain weight is 0.40)
     expect(goodRain - badRain).toBeGreaterThanOrEqual(35);
   });
 
   it('weights swell second (0.30)', () => {
-    const goodSwell = scoreVisibility({ rainScore: 50, swellScore: 100, windScore: 50, tideScore: 50 }).score;
-    const badSwell = scoreVisibility({ rainScore: 50, swellScore: 0, windScore: 50, tideScore: 50 }).score;
+    const goodSwell = scoreVisibility({
+      rainScore: 50,
+      swellScore: 100,
+      windScore: 50,
+      tideScore: 50,
+    }).score;
+    const badSwell = scoreVisibility({
+      rainScore: 50,
+      swellScore: 0,
+      windScore: 50,
+      tideScore: 50,
+    }).score;
     expect(goodSwell - badSwell).toBeGreaterThanOrEqual(25);
   });
 
   it('provides estimated depth range in detail', () => {
-    const excellent = scoreVisibility({ rainScore: 100, swellScore: 100, windScore: 100, tideScore: 100 });
+    const excellent = scoreVisibility({
+      rainScore: 100,
+      swellScore: 100,
+      windScore: 100,
+      tideScore: 100,
+    });
     expect(excellent.detail).toContain('100');
   });
 });
@@ -324,7 +367,7 @@ describe('computeDiveScore', () => {
 describe('computeZoneScores', () => {
   const conditions = {
     windSpeedMph: 12,
-    windDirectionDeg: 45,   // NE trade wind
+    windDirectionDeg: 45, // NE trade wind
     swellHeightFt: 3,
     swellPeriodSec: 10,
     swellDirectionDeg: 200, // SSW swell
@@ -472,5 +515,237 @@ describe('Edge Cases', () => {
     });
     // Calm conditions should score very high
     expect(result.overall).toBeGreaterThanOrEqual(80);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// scoreWindForZone
+// ---------------------------------------------------------------------------
+describe('scoreWindForZone', () => {
+  it('scores perfectly offshore wind as highest for that zone', () => {
+    // Wind from NE (45) is perfectly offshore for southwest zone (offshoreDir=45)
+    const result = scoreWindForZone(12, 45, 45);
+    expect(result.score).toBeGreaterThanOrEqual(70);
+  });
+
+  it('scores onshore wind lower than offshore for same zone', () => {
+    // Southwest zone: offshore=45, onshore=225
+    const offshore = scoreWindForZone(12, 45, 45).score;
+    const onshore = scoreWindForZone(12, 225, 45).score;
+    expect(offshore).toBeGreaterThan(onshore);
+  });
+
+  it('cross-shore wind scores between offshore and onshore', () => {
+    const offshore = scoreWindForZone(12, 45, 45).score;
+    const crossShore = scoreWindForZone(12, 135, 45).score; // 90 deg off
+    const onshore = scoreWindForZone(12, 225, 45).score;
+    expect(crossShore).toBeLessThanOrEqual(offshore);
+    expect(crossShore).toBeGreaterThanOrEqual(onshore);
+  });
+
+  it('returns correct compass direction in detail', () => {
+    const result = scoreWindForZone(10, 90, 45);
+    expect(result.detail).toContain('E');
+    expect(result.detail).toContain('10');
+  });
+
+  it('returns raw data with speedMph and directionDeg', () => {
+    const result = scoreWindForZone(15, 270, 90);
+    expect(result.raw.speedMph).toBe(15);
+    expect(result.raw.directionDeg).toBe(270);
+  });
+
+  it('clamps score to [0, 100] with strong onshore wind', () => {
+    const result = scoreWindForZone(25, 225, 45); // strong onshore
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.score).toBeLessThanOrEqual(100);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// scoreSwellForZone
+// ---------------------------------------------------------------------------
+describe('scoreSwellForZone', () => {
+  it('sheltered zone scores higher than exposed zone for same swell', () => {
+    // South swell (180) hits south face (180) but not north face (0)
+    const exposed = scoreSwellForZone(4, 10, 180, 180).score;
+    const sheltered = scoreSwellForZone(4, 10, 180, 0).score;
+    expect(sheltered).toBeGreaterThan(exposed);
+  });
+
+  it('applies period modifier (long period = better)', () => {
+    const longPeriod = scoreSwellForZone(3, 16, 90, 180).score;
+    const shortPeriod = scoreSwellForZone(3, 5, 90, 180).score;
+    expect(longPeriod).toBeGreaterThan(shortPeriod);
+  });
+
+  it('returns correct height in detail', () => {
+    const result = scoreSwellForZone(5.3, 12, 200, 225);
+    expect(result.detail).toContain('5.3');
+    expect(result.detail).toContain('12s');
+  });
+
+  it('scores flat conditions as 100 regardless of zone face', () => {
+    // 0.5 ft swell, no exposure issue
+    const result = scoreSwellForZone(0.5, 12, 0, 180);
+    expect(result.score).toBeGreaterThanOrEqual(95);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Exported Constants
+// ---------------------------------------------------------------------------
+describe('Exported constants', () => {
+  it('WEIGHTS sum to 1.0', () => {
+    const sum = Object.values(WEIGHTS).reduce((a, b) => a + b, 0);
+    expect(sum).toBeCloseTo(1.0);
+  });
+
+  it('VIS_WEIGHTS sum to 1.0', () => {
+    const sum = Object.values(VIS_WEIGHTS).reduce((a, b) => a + b, 0);
+    expect(sum).toBeCloseTo(1.0);
+  });
+
+  it('score thresholds are in descending order', () => {
+    expect(SCORE_EXCELLENT).toBeGreaterThan(SCORE_GOOD);
+    expect(SCORE_GOOD).toBeGreaterThan(SCORE_FAIR);
+    expect(SCORE_FAIR).toBeGreaterThan(SCORE_POOR);
+  });
+
+  it('precipitation probability thresholds are ordered', () => {
+    expect(PRECIP_PROB_LIKELY).toBeGreaterThan(PRECIP_PROB_CHANCE);
+  });
+
+  it('precipitation estimates are ordered', () => {
+    expect(PRECIP_EST_LIKELY).toBeGreaterThan(PRECIP_EST_CHANCE);
+  });
+
+  it('rain decay multipliers are between 0 and 1', () => {
+    expect(RAIN_DECAY_24H).toBeGreaterThan(0);
+    expect(RAIN_DECAY_24H).toBeLessThanOrEqual(1);
+    expect(RAIN_DECAY_48H).toBeGreaterThan(0);
+    expect(RAIN_DECAY_48H).toBeLessThanOrEqual(1);
+  });
+
+  it('24h decay is stronger than 48h decay', () => {
+    expect(RAIN_DECAY_24H).toBeGreaterThanOrEqual(RAIN_DECAY_48H);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Piecewise-linear boundary tests
+// ---------------------------------------------------------------------------
+describe('Wind speed boundary values', () => {
+  it('score at 5 mph boundary', () => {
+    expect(scoreWind(5, 90).score).toBeGreaterThanOrEqual(95);
+  });
+
+  it('score drops from 5 to 10 mph bracket', () => {
+    const at5 = scoreWind(5, 90).score;
+    const at10 = scoreWind(10, 90).score;
+    // Should drop noticeably between brackets
+    expect(at5 - at10).toBeGreaterThanOrEqual(5);
+  });
+
+  it('score at exact bracket boundaries (10, 15, 20, 25)', () => {
+    const s10 = scoreWind(10, 90).score;
+    const s15 = scoreWind(15, 90).score;
+    const s20 = scoreWind(20, 90).score;
+    const s25 = scoreWind(25, 90).score;
+    expect(s10).toBeGreaterThan(s15);
+    expect(s15).toBeGreaterThan(s20);
+    expect(s20).toBeGreaterThan(s25);
+    expect(s25).toBeLessThanOrEqual(10);
+  });
+});
+
+describe('Swell height boundary values', () => {
+  it('1 ft boundary (100 base)', () => {
+    expect(scoreSwell(1, 10, 0).score).toBeGreaterThanOrEqual(95);
+  });
+
+  it('scores degrade through each height bracket', () => {
+    const heights = [1, 2, 3, 5, 8, 12];
+    const scores = heights.map((h) => scoreSwell(h, 10, 90).score);
+    for (let i = 0; i < scores.length - 1; i++) {
+      expect(scores[i]).toBeGreaterThan(scores[i + 1]);
+    }
+  });
+
+  it('12+ ft swell scores 0 base (before modifiers)', () => {
+    const result = scoreSwell(12, 10, 0);
+    // Base is 0, period modifier +2, no exposure = 2
+    expect(result.score).toBeLessThanOrEqual(10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Visibility label tiers
+// ---------------------------------------------------------------------------
+describe('scoreVisibility - all label tiers', () => {
+  it('Good: 60-79', () => {
+    const result = scoreVisibility({ rainScore: 70, swellScore: 70, windScore: 70, tideScore: 70 });
+    expect(result.label).toBe('Good');
+    expect(result.detail).toContain('30-60 ft');
+  });
+
+  it('Fair: 40-59', () => {
+    const result = scoreVisibility({ rainScore: 50, swellScore: 50, windScore: 50, tideScore: 50 });
+    expect(result.label).toBe('Fair');
+    expect(result.detail).toContain('15-30 ft');
+  });
+
+  it('Poor: 20-39', () => {
+    const result = scoreVisibility({ rainScore: 30, swellScore: 30, windScore: 30, tideScore: 30 });
+    expect(result.label).toBe('Poor');
+    expect(result.detail).toContain('5-15 ft');
+  });
+
+  it('Very Poor: <20', () => {
+    const result = scoreVisibility({ rainScore: 5, swellScore: 5, windScore: 5, tideScore: 5 });
+    expect(result.label).toBe('Very Poor');
+    expect(result.detail).toContain('< 5 ft');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rain detail strings
+// ---------------------------------------------------------------------------
+describe('scoreRain - detail strings', () => {
+  it('shows "No rain in 48+ hrs" for bone dry', () => {
+    const result = scoreRain(0, 0, false);
+    expect(result.detail).toContain('No rain in 48+ hrs');
+  });
+
+  it('shows rainfall amounts for wet conditions', () => {
+    const result = scoreRain(0.3, 0.5, false);
+    expect(result.detail).toContain('0.30');
+    expect(result.detail).toContain('0.50');
+    expect(result.detail).toContain('24h');
+    expect(result.detail).toContain('48h');
+  });
+
+  it('shows "raining now" for heavy rain + currently raining', () => {
+    const result = scoreRain(0.6, 1.0, true);
+    expect(result.detail).toContain('raining now');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tide label correctness
+// ---------------------------------------------------------------------------
+describe('scoreTide - label correctness', () => {
+  it('labels near-zero rate as Slack', () => {
+    expect(scoreTide(1.0, 0.0, null).label).toBe('Slack');
+    expect(scoreTide(1.0, 0.1, null).label).toBe('Slack');
+    expect(scoreTide(1.0, -0.1, null).label).toBe('Slack');
+  });
+
+  it('labels positive rate > 0.15 as Rising', () => {
+    expect(scoreTide(1.0, 0.3, null).label).toBe('Rising');
+  });
+
+  it('labels negative rate < -0.15 as Falling', () => {
+    expect(scoreTide(1.0, -0.3, null).label).toBe('Falling');
   });
 });
