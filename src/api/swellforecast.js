@@ -34,7 +34,7 @@ const CACHE_TTL = 2 * 3600_000;
  */
 export async function fetchSwellForecast() {
   const now = Date.now();
-  if (cache.data && (now - cache.timestamp) < CACHE_TTL) {
+  if (cache.data && now - cache.timestamp < CACHE_TTL) {
     return cache.data;
   }
 
@@ -44,9 +44,7 @@ export async function fetchSwellForecast() {
   const latRange = `(${LAT_MIN}):(${LAT_MAX})`;
   const lonRange = `(${LON_MIN}):(${LON_MAX})`;
 
-  const fields = vars.map(v =>
-    `${v}[${timeRange}]${depth}[${latRange}][${lonRange}]`
-  ).join(',');
+  const fields = vars.map((v) => `${v}[${timeRange}]${depth}[${latRange}][${lonRange}]`).join(',');
 
   const url = `${API_BASE}/api/erddap/griddap/ww3_hawaii.csv?${fields}`;
 
@@ -129,12 +127,14 @@ function parseErddapCsv(text) {
  * Circular mean for angles (degrees).
  */
 function circularMean(angles) {
-  let sinSum = 0, cosSum = 0;
+  if (!angles.length) return 0;
+  let sinSum = 0,
+    cosSum = 0;
   for (const a of angles) {
-    const rad = a * Math.PI / 180;
+    const rad = (a * Math.PI) / 180;
     sinSum += Math.sin(rad);
     cosSum += Math.cos(rad);
   }
-  const mean = Math.atan2(sinSum / angles.length, cosSum / angles.length) * 180 / Math.PI;
+  const mean = (Math.atan2(sinSum / angles.length, cosSum / angles.length) * 180) / Math.PI;
   return (mean + 360) % 360;
 }

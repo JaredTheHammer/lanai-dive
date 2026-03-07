@@ -222,7 +222,7 @@ function computeForecastTimeline(
             frac * (tidePredictions[i + 1].height - tidePredictions[i].height);
           const dt =
             (tidePredictions[i + 1].time.getTime() - tidePredictions[i].time.getTime()) / 3600000;
-          tideRate = (tidePredictions[i + 1].height - tidePredictions[i].height) / dt;
+          tideRate = dt > 0 ? (tidePredictions[i + 1].height - tidePredictions[i].height) / dt : 0;
           break;
         }
       }
@@ -304,7 +304,7 @@ function computeZoneForecastTimeline(
             frac * (tidePredictions[i + 1].height - tidePredictions[i].height);
           const dt =
             (tidePredictions[i + 1].time.getTime() - tidePredictions[i].time.getTime()) / 3600000;
-          tideRate = (tidePredictions[i + 1].height - tidePredictions[i].height) / dt;
+          tideRate = dt > 0 ? (tidePredictions[i + 1].height - tidePredictions[i].height) / dt : 0;
           break;
         }
       }

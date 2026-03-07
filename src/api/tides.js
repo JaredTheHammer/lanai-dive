@@ -24,8 +24,8 @@ export async function fetchTidePredictions() {
     datum: 'MLLW',
     time_zone: 'lst_ldt',
     units: 'english',
-    interval: '6',        // 6-minute intervals for smooth curve
-    format: 'json'
+    interval: '6', // 6-minute intervals for smooth curve
+    format: 'json',
   });
 
   const res = await fetch(`${API_BASE}/api/tides?${params}`);
@@ -34,9 +34,9 @@ export async function fetchTidePredictions() {
   const data = await res.json();
   if (!data.predictions) throw new Error('No tide prediction data');
 
-  return data.predictions.map(p => ({
+  return data.predictions.map((p) => ({
     time: new Date(p.t.replace(' ', 'T')),
-    height: parseFloat(p.v)
+    height: parseFloat(p.v),
   }));
 }
 
@@ -58,7 +58,7 @@ export async function fetchTideExtremes() {
     time_zone: 'lst_ldt',
     units: 'english',
     interval: 'hilo',
-    format: 'json'
+    format: 'json',
   });
 
   const res = await fetch(`${API_BASE}/api/tides?${params}`);
@@ -67,10 +67,10 @@ export async function fetchTideExtremes() {
   const data = await res.json();
   if (!data.predictions) throw new Error('No tide extreme data');
 
-  return data.predictions.map(p => ({
+  return data.predictions.map((p) => ({
     time: new Date(p.t.replace(' ', 'T')),
     height: parseFloat(p.v),
-    type: p.type // 'H' or 'L'
+    type: p.type, // 'H' or 'L'
   }));
 }
 
@@ -82,7 +82,8 @@ export function computeTideState(predictions, extremes) {
   const now = Date.now();
 
   // Find the two predictions bracketing now
-  let before = null, after = null;
+  let before = null,
+    after = null;
   for (let i = 0; i < predictions.length - 1; i++) {
     if (predictions[i].time.getTime() <= now && predictions[i + 1].time.getTime() > now) {
       before = predictions[i];
@@ -102,18 +103,20 @@ export function computeTideState(predictions, extremes) {
 
   // Rate of change in ft/hr
   const dtHours = (after.time.getTime() - before.time.getTime()) / 3600000;
-  const rateOfChange = (after.height - before.height) / dtHours;
+  const rateOfChange = dtHours > 0 ? (after.height - before.height) / dtHours : 0;
 
   // Next slack = next hi/lo extreme
-  const nextSlack = extremes.find(e => e.time.getTime() > now);
+  const nextSlack = extremes.find((e) => e.time.getTime() > now);
 
   return {
     level,
     rateOfChange,
-    nextSlack: nextSlack ? {
-      time: nextSlack.time,
-      type: nextSlack.type === 'H' ? 'high' : 'low',
-      level: nextSlack.height
-    } : null
+    nextSlack: nextSlack
+      ? {
+          time: nextSlack.time,
+          type: nextSlack.type === 'H' ? 'high' : 'low',
+          level: nextSlack.height,
+        }
+      : null,
   };
 }

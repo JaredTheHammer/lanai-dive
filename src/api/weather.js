@@ -24,7 +24,12 @@ async function getGridpoint() {
       });
       if (!res.ok) throw new Error(`NWS points API error: ${res.status}`);
 
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error('NWS points API returned non-JSON response');
+      }
       const props = data.properties;
       if (!props || !props.gridId || props.gridX == null || props.gridY == null) {
         throw new Error('NWS points API returned unexpected response shape');
@@ -59,7 +64,12 @@ export async function fetchHourlyForecast() {
   );
   if (!res.ok) throw new Error(`NWS hourly forecast error: ${res.status}`);
 
-  const data = await res.json();
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error('NWS hourly forecast returned non-JSON response');
+  }
   const periods = data.properties?.periods || [];
 
   return periods.map((p) => ({
@@ -90,7 +100,12 @@ export async function fetchPrecipitation() {
   });
   if (!res.ok) throw new Error(`NWS gridpoint data error: ${res.status}`);
 
-  const data = await res.json();
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error('NWS gridpoint data returned non-JSON response');
+  }
   const precip = data.properties?.quantitativePrecipitation?.values || [];
 
   const now = Date.now();
@@ -101,7 +116,9 @@ export async function fetchPrecipitation() {
   let rain48h = 0;
 
   for (const v of precip) {
+    if (!v.validTime || typeof v.validTime !== 'string') continue;
     const t = new Date(v.validTime.split('/')[0]).getTime();
+    if (isNaN(t)) continue; // Skip malformed timestamps
     const amount = (v.value || 0) / 25.4; // mm to inches
     if (t >= h24) rain24h += amount;
     if (t >= h48) rain48h += amount;

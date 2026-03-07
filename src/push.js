@@ -130,7 +130,7 @@ export async function updatePushPrefs(prefs) {
     const subscription = await registration.pushManager.getSubscription();
 
     if (subscription) {
-      await fetch(PUSH_URL, {
+      const res = await fetch(PUSH_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -138,6 +138,9 @@ export async function updatePushPrefs(prefs) {
           prefs,
         }),
       });
+      if (!res.ok) {
+        console.error(`Push prefs update returned ${res.status}`);
+      }
     }
   } catch (err) {
     console.error('Push prefs update failed:', err);
