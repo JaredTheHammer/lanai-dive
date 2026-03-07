@@ -240,3 +240,89 @@ describe('event shape handling', () => {
     expect(result.statusCode).toBe(404);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Path traversal / SSRF protection
+// ---------------------------------------------------------------------------
+describe('path traversal protection', () => {
+  it('rejects weather paths with .. traversal', async () => {
+    const result = await handler(makeEvent('/api/weather/../../etc/passwd'));
+    expect(result.statusCode).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects weather paths with encoded traversal (%2e%2e)', async () => {
+    const result = await handler(makeEvent('/api/weather/%2e%2e/secret'));
+    expect(result.statusCode).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects weather paths not matching allowed prefixes', async () => {
+    const result = await handler(makeEvent('/api/weather/admin/config'));
+    expect(result.statusCode).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('allows valid weather paths (/points/)', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Map([['content-type', 'application/json']]),
+      text: async () => '{}',
+    });
+
+    const result = await handler(makeEvent('/api/weather/points/20.83,-156.92'));
+    expect(result.statusCode).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows valid weather paths (/gridpoints/)', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Map([['content-type', 'application/json']]),
+      text: async () => '{}',
+    });
+
+    const result = await handler(makeEvent('/api/weather/gridpoints/HFO/6,157/forecast/hourly'));
+    expect(result.statusCode).toBe(200);
+  });
+
+  it('rejects buoy paths with path traversal', async () => {
+    const result = await handler(makeEvent('/api/buoy/../../../etc/passwd'));
+    expect(result.statusCode).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects buoy paths that do not match allowed file patterns', async () => {
+    const result = await handler(makeEvent('/api/buoy/somedir/malicious.php'));
+    expect(result.statusCode).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('allows valid buoy file paths', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Map([['content-type', 'text/plain']]),
+      text: async () => 'data',
+    });
+
+    const result = await handler(makeEvent('/api/buoy/51213.txt'));
+    expect(result.statusCode).toBe(200);
+  });
+
+  it('uses generic contact email in User-Agent (no personal email)', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Map([['content-type', 'application/json']]),
+      text: async () => '{}',
+    });
+
+    await handler(makeEvent('/api/weather/points/20.83,-156.92'));
+    const ua = fetch.mock.calls[0][1].headers['User-Agent'];
+    expect(ua).toContain('lanai-dive');
+    expect(ua).not.toContain('jared');
+  });
+});

@@ -21,8 +21,8 @@ export default defineConfig({
         icons: [
           { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
-        ]
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2,geojson}'],
@@ -40,19 +40,20 @@ export default defineConfig({
               cacheName: 'api-local-proxy',
               expiration: { maxEntries: 30, maxAgeSeconds: 1800 }, // 30 min
               networkTimeoutSeconds: 8,
-              cacheableResponse: { statuses: [0, 200] }
-            }
+              cacheableResponse: { statuses: [0, 200] },
+            },
           },
           {
             // Direct external API calls (production, no proxy)
-            urlPattern: /^https:\/\/(api\.(tidesandcurrents\.noaa\.gov|weather\.gov)|www\.ndbc\.noaa\.gov)/,
+            urlPattern:
+              /^https:\/\/(api\.(tidesandcurrents\.noaa\.gov|weather\.gov)|www\.ndbc\.noaa\.gov)/,
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-external',
               expiration: { maxEntries: 50, maxAgeSeconds: 1800 },
               networkTimeoutSeconds: 8,
-              cacheableResponse: { statuses: [0, 200] }
-            }
+              cacheableResponse: { statuses: [0, 200] },
+            },
           },
           {
             // CartoDB map tiles
@@ -60,8 +61,8 @@ export default defineConfig({
             handler: 'CacheFirst',
             options: {
               cacheName: 'map-tiles',
-              expiration: { maxEntries: 500, maxAgeSeconds: 604800 } // 7 days
-            }
+              expiration: { maxEntries: 500, maxAgeSeconds: 604800 }, // 7 days
+            },
           },
           {
             // MapLibre GL JS / style resources
@@ -69,12 +70,12 @@ export default defineConfig({
             handler: 'CacheFirst',
             options: {
               cacheName: 'cdn-assets',
-              expiration: { maxEntries: 30, maxAgeSeconds: 2592000 } // 30 days
-            }
-          }
-        ]
-      }
-    })
+              expiration: { maxEntries: 30, maxAgeSeconds: 2592000 }, // 30 days
+            },
+          },
+        ],
+      },
+    }),
   ],
   build: {
     rollupOptions: {
@@ -86,33 +87,33 @@ export default defineConfig({
           if (id.includes('recharts') || id.includes('d3-')) {
             return 'recharts';
           }
-        }
-      }
-    }
+        },
+      },
+    },
   },
   server: {
     proxy: {
       '/api/tides': {
         target: 'https://api.tidesandcurrents.noaa.gov',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/tides/, '/api/prod/datagetter')
+        rewrite: (path) => path.replace(/^\/api\/tides/, '/api/prod/datagetter'),
       },
       '/api/weather': {
         target: 'https://api.weather.gov',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/weather/, ''),
-        headers: { 'User-Agent': '(lanai-dive, jared.m.hamm@gmail.com)' }
+        headers: { 'User-Agent': '(lanai-dive, contact@lanaidive.app)' },
       },
       '/api/buoy': {
         target: 'https://www.ndbc.noaa.gov',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/buoy/, '/data/realtime2')
+        rewrite: (path) => path.replace(/^\/api\/buoy/, '/data/realtime2'),
       },
       '/api/erddap': {
         target: 'https://pae-paha.pacioos.hawaii.edu',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/erddap/, '/erddap')
-      }
-    }
-  }
+        rewrite: (path) => path.replace(/^\/api\/erddap/, '/erddap'),
+      },
+    },
+  },
 });
