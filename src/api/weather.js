@@ -14,6 +14,7 @@ let gridpointPromise = null;
 /**
  * Resolve the NWS gridpoint for Lanai coordinates.
  * Caches the promise so concurrent callers share a single request.
+ * Clears the cache on failure so the next call retries.
  */
 async function getGridpoint() {
   if (!gridpointPromise) {
@@ -24,9 +25,15 @@ async function getGridpoint() {
       if (!res.ok) throw new Error(`NWS points API error: ${res.status}`);
 
       const data = await res.json();
-      const { gridId, gridX, gridY } = data.properties;
-      return { gridId, gridX, gridY };
-    })();
+      const props = data.properties;
+      if (!props || !props.gridId || props.gridX == null || props.gridY == null) {
+        throw new Error('NWS points API returned unexpected response shape');
+      }
+      return { gridId: props.gridId, gridX: props.gridX, gridY: props.gridY };
+    })().catch((err) => {
+      gridpointPromise = null; // Allow retry on next call
+      throw err;
+    });
   }
   return gridpointPromise;
 }
