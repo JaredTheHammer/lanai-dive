@@ -23,11 +23,11 @@ const HISTORY_KEY = 'lanaidive:notifHistory';
 // --- Default preferences ---
 const DEFAULT_PREFS = {
   enabled: false,
-  scoreThreshold: 70,       // Notify when any zone crosses this score
-  windLimitMph: 20,         // Notify when wind exceeds this
-  swellLimitFt: 6,          // Notify when swell exceeds this
-  bestZoneChange: true,     // Notify when the best zone changes
-  seasonChange: true,       // Notify on lobster/species season transitions
+  scoreThreshold: 70, // Notify when any zone crosses this score
+  windLimitMph: 20, // Notify when wind exceeds this
+  swellLimitFt: 6, // Notify when swell exceeds this
+  bestZoneChange: true, // Notify when the best zone changes
+  seasonChange: true, // Notify on lobster/species season transitions
 };
 
 function loadPrefs() {
@@ -42,7 +42,9 @@ function loadPrefs() {
 function savePrefs(prefs) {
   try {
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-  } catch { /* silent */ }
+  } catch {
+    /* silent */
+  }
 }
 
 function loadHistory() {
@@ -58,7 +60,9 @@ function saveHistory(history) {
   try {
     // Keep last 50 notifications
     localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 50)));
-  } catch { /* silent */ }
+  } catch {
+    /* silent */
+  }
 }
 
 /**
@@ -78,7 +82,7 @@ function saveHistory(history) {
 export default function useNotifications() {
   const [prefs, setPrefs] = useState(loadPrefs);
   const [permission, setPermission] = useState(() =>
-    typeof Notification !== 'undefined' ? Notification.permission : 'denied'
+    typeof Notification !== 'undefined' ? Notification.permission : 'denied',
   );
   const [history, setHistory] = useState(loadHistory);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -89,16 +93,18 @@ export default function useNotifications() {
     savePrefs(prefs);
     // Non-blocking sync to server
     if (prefs.enabled && permission === 'granted') {
-      updatePushPrefs(prefs).catch(() => {});
+      updatePushPrefs(prefs).catch((err) => console.error('Failed to sync push prefs:', err));
     }
     if (!prefs.enabled) {
-      unsubscribeFromPush().catch(() => {});
+      unsubscribeFromPush().catch((err) => console.error('Failed to unsubscribe push:', err));
     }
   }, [prefs, permission]);
-  useEffect(() => { saveHistory(history); }, [history]);
+  useEffect(() => {
+    saveHistory(history);
+  }, [history]);
 
   const updatePrefs = useCallback((partial) => {
-    setPrefs(prev => ({ ...prev, ...partial }));
+    setPrefs((prev) => ({ ...prev, ...partial }));
   }, []);
 
   const requestPermission = useCallback(async () => {
@@ -108,38 +114,48 @@ export default function useNotifications() {
     if (result === 'granted') {
       updatePrefs({ enabled: true });
       // Also subscribe to server-side push (non-blocking)
-      subscribeToPush(prefs).catch(() => {});
+      subscribeToPush(prefs).catch((err) => console.error('Failed to subscribe push:', err));
     }
     return result;
   }, [supported, updatePrefs, prefs]);
 
-  const addNotification = useCallback((title, body, tag) => {
-    const entry = { id: Date.now(), title, body, tag, time: new Date().toISOString(), read: false };
-    setHistory(prev => [entry, ...prev]);
-    setUnreadCount(prev => prev + 1);
+  const addNotification = useCallback(
+    (title, body, tag) => {
+      const entry = {
+        id: Date.now(),
+        title,
+        body,
+        tag,
+        time: new Date().toISOString(),
+        read: false,
+      };
+      setHistory((prev) => [entry, ...prev]);
+      setUnreadCount((prev) => prev + 1);
 
-    // Fire browser notification if permitted
-    if (supported && permission === 'granted') {
-      try {
-        new Notification(title, {
-          body,
-          tag, // Replaces notifications with the same tag
-          icon: '/icon-192.png',
-          badge: '/icon-192.png',
-          silent: false,
-        });
-      } catch {
-        // iOS may throw in certain states; sw registration needed
-        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage({
-            type: 'SHOW_NOTIFICATION',
-            title,
-            options: { body, tag, icon: '/icon-192.png' },
+      // Fire browser notification if permitted
+      if (supported && permission === 'granted') {
+        try {
+          new Notification(title, {
+            body,
+            tag, // Replaces notifications with the same tag
+            icon: '/icon-192.png',
+            badge: '/icon-192.png',
+            silent: false,
           });
+        } catch {
+          // iOS may throw in certain states; sw registration needed
+          if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({
+              type: 'SHOW_NOTIFICATION',
+              title,
+              options: { body, tag, icon: '/icon-192.png' },
+            });
+          }
         }
       }
-    }
-  }, [supported, permission]);
+    },
+    [supported, permission],
+  );
 
   const clearHistory = useCallback(() => {
     setHistory([]);
@@ -148,107 +164,114 @@ export default function useNotifications() {
 
   const markRead = useCallback(() => {
     setUnreadCount(0);
-    setHistory(prev => prev.map(n => ({ ...n, read: true })));
+    setHistory((prev) => prev.map((n) => ({ ...n, read: true })));
   }, []);
 
   /**
    * Compare previous and current condition data, fire notifications
    * for any threshold crossings.
    */
-  const checkAndNotify = useCallback((prevData, newData) => {
-    if (!prefs.enabled || !prevData || !newData) return;
-    if (!prevData.zoneScores || !newData.zoneScores) return;
+  const checkAndNotify = useCallback(
+    (prevData, newData) => {
+      if (!prefs.enabled || !prevData || !newData) return;
+      if (!prevData.zoneScores || !newData.zoneScores) return;
 
-    // 1. Score threshold crossings
-    if (prefs.scoreThreshold > 0) {
-      const threshold = prefs.scoreThreshold;
-      for (const [zoneId, newScore] of Object.entries(newData.zoneScores)) {
-        const prevScore = prevData.zoneScores[zoneId];
-        if (!prevScore) continue;
-        const wasAbove = prevScore.overall >= threshold;
-        const isAbove = newScore.overall >= threshold;
-        if (!wasAbove && isAbove) {
+      // 1. Score threshold crossings
+      if (prefs.scoreThreshold > 0) {
+        const threshold = prefs.scoreThreshold;
+        for (const [zoneId, newScore] of Object.entries(newData.zoneScores)) {
+          const prevScore = prevData.zoneScores[zoneId];
+          if (!prevScore) continue;
+          const wasAbove = prevScore.overall >= threshold;
+          const isAbove = newScore.overall >= threshold;
+          if (!wasAbove && isAbove) {
+            addNotification(
+              `${newScore.zone.name} is now diveable`,
+              `Score rose to ${newScore.overall} (threshold: ${threshold})`,
+              `score-up-${zoneId}`,
+            );
+          } else if (wasAbove && !isAbove) {
+            addNotification(
+              `${newScore.zone.name} conditions dropped`,
+              `Score fell to ${newScore.overall} (was ${prevScore.overall})`,
+              `score-down-${zoneId}`,
+            );
+          }
+        }
+      }
+
+      // 2. Best zone change
+      if (prefs.bestZoneChange) {
+        const prevBest = Object.entries(prevData.zoneScores).sort(
+          ([, a], [, b]) => b.overall - a.overall,
+        )[0];
+        const newBest = Object.entries(newData.zoneScores).sort(
+          ([, a], [, b]) => b.overall - a.overall,
+        )[0];
+        if (prevBest && newBest && prevBest[0] !== newBest[0]) {
           addNotification(
-            `${newScore.zone.name} is now diveable`,
-            `Score rose to ${newScore.overall} (threshold: ${threshold})`,
-            `score-up-${zoneId}`
-          );
-        } else if (wasAbove && !isAbove) {
-          addNotification(
-            `${newScore.zone.name} conditions dropped`,
-            `Score fell to ${newScore.overall} (was ${prevScore.overall})`,
-            `score-down-${zoneId}`
+            'Best zone changed',
+            `${newBest[1].zone.name} (${newBest[1].overall}) replaced ${prevBest[1].zone.name} (${prevBest[1].overall})`,
+            'best-zone-change',
           );
         }
       }
-    }
 
-    // 2. Best zone change
-    if (prefs.bestZoneChange) {
-      const prevBest = Object.entries(prevData.zoneScores)
-        .sort(([, a], [, b]) => b.overall - a.overall)[0];
-      const newBest = Object.entries(newData.zoneScores)
-        .sort(([, a], [, b]) => b.overall - a.overall)[0];
-      if (prevBest && newBest && prevBest[0] !== newBest[0]) {
-        addNotification(
-          'Best zone changed',
-          `${newBest[1].zone.name} (${newBest[1].overall}) replaced ${prevBest[1].zone.name} (${prevBest[1].overall})`,
-          'best-zone-change'
-        );
+      // 3. Wind limit
+      if (prefs.windLimitMph > 0 && newData.conditions && prevData.conditions) {
+        const wasOver = prevData.conditions.windSpeedMph > prefs.windLimitMph;
+        const isOver = newData.conditions.windSpeedMph > prefs.windLimitMph;
+        if (!wasOver && isOver) {
+          addNotification(
+            'Wind advisory',
+            `Wind increased to ${Math.round(newData.conditions.windSpeedMph)} mph (limit: ${prefs.windLimitMph})`,
+            'wind-over',
+          );
+        } else if (wasOver && !isOver) {
+          addNotification(
+            'Wind easing',
+            `Wind dropped to ${Math.round(newData.conditions.windSpeedMph)} mph`,
+            'wind-under',
+          );
+        }
       }
-    }
 
-    // 3. Wind limit
-    if (prefs.windLimitMph > 0 && newData.conditions && prevData.conditions) {
-      const wasOver = prevData.conditions.windSpeedMph > prefs.windLimitMph;
-      const isOver = newData.conditions.windSpeedMph > prefs.windLimitMph;
-      if (!wasOver && isOver) {
-        addNotification(
-          'Wind advisory',
-          `Wind increased to ${Math.round(newData.conditions.windSpeedMph)} mph (limit: ${prefs.windLimitMph})`,
-          'wind-over'
-        );
-      } else if (wasOver && !isOver) {
-        addNotification(
-          'Wind easing',
-          `Wind dropped to ${Math.round(newData.conditions.windSpeedMph)} mph`,
-          'wind-under'
-        );
+      // 4. Swell limit
+      if (prefs.swellLimitFt > 0 && newData.conditions && prevData.conditions) {
+        const wasOver = prevData.conditions.swellHeightFt > prefs.swellLimitFt;
+        const isOver = newData.conditions.swellHeightFt > prefs.swellLimitFt;
+        if (!wasOver && isOver) {
+          addNotification(
+            'Swell advisory',
+            `Swell increased to ${newData.conditions.swellHeightFt.toFixed(1)} ft (limit: ${prefs.swellLimitFt})`,
+            'swell-over',
+          );
+        } else if (wasOver && !isOver) {
+          addNotification(
+            'Swell dropping',
+            `Swell eased to ${newData.conditions.swellHeightFt.toFixed(1)} ft`,
+            'swell-under',
+          );
+        }
       }
-    }
 
-    // 4. Swell limit
-    if (prefs.swellLimitFt > 0 && newData.conditions && prevData.conditions) {
-      const wasOver = prevData.conditions.swellHeightFt > prefs.swellLimitFt;
-      const isOver = newData.conditions.swellHeightFt > prefs.swellLimitFt;
-      if (!wasOver && isOver) {
-        addNotification(
-          'Swell advisory',
-          `Swell increased to ${newData.conditions.swellHeightFt.toFixed(1)} ft (limit: ${prefs.swellLimitFt})`,
-          'swell-over'
-        );
-      } else if (wasOver && !isOver) {
-        addNotification(
-          'Swell dropping',
-          `Swell eased to ${newData.conditions.swellHeightFt.toFixed(1)} ft`,
-          'swell-under'
-        );
+      // 5. Lobster season transition
+      if (prefs.seasonChange && prevData.seasonInfo && newData.seasonInfo) {
+        const wasOpen = prevData.seasonInfo.lobster?.inSeason;
+        const isOpen = newData.seasonInfo.lobster?.inSeason;
+        if (wasOpen !== undefined && isOpen !== undefined && wasOpen !== isOpen) {
+          addNotification(
+            isOpen ? 'Lobster season opened!' : 'Lobster season closed',
+            isOpen
+              ? 'Spiny lobster harvest is now permitted (Sep 1 - Apr 30)'
+              : 'Lobster season closed May 1 through August 31',
+            'lobster-season',
+          );
+        }
       }
-    }
-
-    // 5. Lobster season transition
-    if (prefs.seasonChange && prevData.seasonInfo && newData.seasonInfo) {
-      const wasOpen = prevData.seasonInfo.lobster?.inSeason;
-      const isOpen = newData.seasonInfo.lobster?.inSeason;
-      if (wasOpen !== undefined && isOpen !== undefined && wasOpen !== isOpen) {
-        addNotification(
-          isOpen ? 'Lobster season opened!' : 'Lobster season closed',
-          isOpen ? 'Spiny lobster harvest is now permitted (Sep 1 - Apr 30)' : 'Lobster season closed May 1 through August 31',
-          'lobster-season'
-        );
-      }
-    }
-  }, [prefs, addNotification]);
+    },
+    [prefs, addNotification],
+  );
 
   return {
     prefs,

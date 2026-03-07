@@ -8,10 +8,10 @@ import { API_BASE, TIDE_STATION } from './config.js';
 import { format, addDays } from 'date-fns';
 
 /**
- * Fetch tide predictions for the next 48 hours.
- * Returns array of { time: Date, height: number (ft) }
+ * Fetch tide data from NOAA CO-OPS for the next 48 hours.
+ * @param {'6'|'hilo'} interval - '6' for 6-min predictions, 'hilo' for extremes
  */
-export async function fetchTidePredictions() {
+async function fetchTideData(interval) {
   const now = new Date();
   const beginDate = format(now, 'yyyyMMdd');
   const endDate = format(addDays(now, 2), 'yyyyMMdd');
@@ -24,19 +24,28 @@ export async function fetchTidePredictions() {
     datum: 'MLLW',
     time_zone: 'lst_ldt',
     units: 'english',
-    interval: '6',        // 6-minute intervals for smooth curve
-    format: 'json'
+    interval,
+    format: 'json',
   });
 
   const res = await fetch(`${API_BASE}/api/tides?${params}`);
-  if (!res.ok) throw new Error(`Tides API error: ${res.status}`);
+  if (!res.ok) throw new Error(`Tides API error (${interval}): ${res.status}`);
 
   const data = await res.json();
-  if (!data.predictions) throw new Error('No tide prediction data');
+  if (!data.predictions) throw new Error(`No tide data (${interval})`);
 
-  return data.predictions.map(p => ({
+  return data.predictions;
+}
+
+/**
+ * Fetch tide predictions for the next 48 hours.
+ * Returns array of { time: Date, height: number (ft) }
+ */
+export async function fetchTidePredictions() {
+  const predictions = await fetchTideData('6');
+  return predictions.map((p) => ({
     time: new Date(p.t.replace(' ', 'T')),
-    height: parseFloat(p.v)
+    height: parseFloat(p.v),
   }));
 }
 
@@ -45,32 +54,11 @@ export async function fetchTidePredictions() {
  * Returns array of { time: Date, height: number, type: 'H'|'L' }
  */
 export async function fetchTideExtremes() {
-  const now = new Date();
-  const beginDate = format(now, 'yyyyMMdd');
-  const endDate = format(addDays(now, 2), 'yyyyMMdd');
-
-  const params = new URLSearchParams({
-    station: TIDE_STATION,
-    begin_date: beginDate,
-    end_date: endDate,
-    product: 'predictions',
-    datum: 'MLLW',
-    time_zone: 'lst_ldt',
-    units: 'english',
-    interval: 'hilo',
-    format: 'json'
-  });
-
-  const res = await fetch(`${API_BASE}/api/tides?${params}`);
-  if (!res.ok) throw new Error(`Tides hilo API error: ${res.status}`);
-
-  const data = await res.json();
-  if (!data.predictions) throw new Error('No tide extreme data');
-
-  return data.predictions.map(p => ({
+  const predictions = await fetchTideData('hilo');
+  return predictions.map((p) => ({
     time: new Date(p.t.replace(' ', 'T')),
     height: parseFloat(p.v),
-    type: p.type // 'H' or 'L'
+    type: p.type, // 'H' or 'L'
   }));
 }
 
@@ -82,7 +70,8 @@ export function computeTideState(predictions, extremes) {
   const now = Date.now();
 
   // Find the two predictions bracketing now
-  let before = null, after = null;
+  let before = null,
+    after = null;
   for (let i = 0; i < predictions.length - 1; i++) {
     if (predictions[i].time.getTime() <= now && predictions[i + 1].time.getTime() > now) {
       before = predictions[i];
@@ -102,18 +91,20 @@ export function computeTideState(predictions, extremes) {
 
   // Rate of change in ft/hr
   const dtHours = (after.time.getTime() - before.time.getTime()) / 3600000;
-  const rateOfChange = (after.height - before.height) / dtHours;
+  const rateOfChange = dtHours > 0 ? (after.height - before.height) / dtHours : 0;
 
   // Next slack = next hi/lo extreme
-  const nextSlack = extremes.find(e => e.time.getTime() > now);
+  const nextSlack = extremes.find((e) => e.time.getTime() > now);
 
   return {
     level,
     rateOfChange,
-    nextSlack: nextSlack ? {
-      time: nextSlack.time,
-      type: nextSlack.type === 'H' ? 'high' : 'low',
-      level: nextSlack.height
-    } : null
+    nextSlack: nextSlack
+      ? {
+          time: nextSlack.time,
+          type: nextSlack.type === 'H' ? 'high' : 'low',
+          level: nextSlack.height,
+        }
+      : null,
   };
 }

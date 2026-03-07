@@ -50,6 +50,14 @@ vi.mock('../scoring/index.js', () => ({
     north: { overall: 25, overallLabel: 'Poor', overallColor: '#f97316' },
     east: { overall: 45, overallLabel: 'Fair', overallColor: '#eab308' },
   })),
+  scoreWindForZone: vi.fn(() => ({ score: 70, label: 'Moderate', detail: '', raw: {} })),
+  scoreSwellForZone: vi.fn(() => ({ score: 65, label: 'Small', detail: '', raw: {} })),
+  PRECIP_PROB_LIKELY: 60,
+  PRECIP_PROB_CHANCE: 30,
+  PRECIP_EST_LIKELY: 0.3,
+  PRECIP_EST_CHANCE: 0.1,
+  RAIN_DECAY_24H: 0.5,
+  RAIN_DECAY_48H: 0.3,
 }));
 
 vi.mock('../data/species.js', () => ({
@@ -70,9 +78,7 @@ const MOCK_PREDICTIONS = [
   { time: new Date(Date.now() + 60000), height: 1.3 },
 ];
 
-const MOCK_EXTREMES = [
-  { time: new Date(Date.now() + 3600000), height: 2.0, type: 'H' },
-];
+const MOCK_EXTREMES = [{ time: new Date(Date.now() + 3600000), height: 2.0, type: 'H' }];
 
 function setDefaultMocks() {
   fetchTidePredictions.mockResolvedValue(MOCK_PREDICTIONS);
@@ -160,7 +166,7 @@ describe('fetchAllConditions', () => {
     // Should use buoy wind as fallback
     expect(result.conditions.windSpeedMph).toBe(8);
     expect(result.conditions.windDirectionDeg).toBe(50);
-    expect(result.errors.some(e => e.source === 'wind')).toBe(true);
+    expect(result.errors.some((e) => e.source === 'wind')).toBe(true);
   });
 
   it('uses default wind when both NWS and buoy fail', async () => {
@@ -181,7 +187,7 @@ describe('fetchAllConditions', () => {
 
     expect(result.conditions.rain24h).toBe(0);
     expect(result.conditions.currentlyRaining).toBe(false);
-    expect(result.errors.some(e => e.source === 'precipitation')).toBe(true);
+    expect(result.errors.some((e) => e.source === 'precipitation')).toBe(true);
   });
 
   it('handles buoy failure with fallback swell', async () => {
@@ -189,7 +195,7 @@ describe('fetchAllConditions', () => {
 
     const result = await fetchAllConditions();
 
-    expect(result.conditions.swellHeightFt).toBe(2);  // fallback
+    expect(result.conditions.swellHeightFt).toBe(2); // fallback
     expect(result.conditions.swellPeriodSec).toBe(10); // fallback
     expect(result.waterTemp).toBeNull();
   });
@@ -239,5 +245,148 @@ describe('fetchAllConditions', () => {
     expect(result.seasonInfo).toBeDefined();
     expect(result.seasonInfo.lobster).toBeDefined();
     expect(result.zoneSpecies).toBeDefined();
+  });
+
+  it('derives currentlyRaining from hourly forecast first period', async () => {
+    fetchHourlyForecast.mockResolvedValue([
+      {
+        time: new Date(),
+        windSpeedMph: 10,
+        windDirectionDeg: 45,
+        precipProbability: 80,
+        isRaining: true,
+        isDaytime: true,
+        shortForecast: 'Rain',
+      },
+    ]);
+
+    const result = await fetchAllConditions();
+    expect(result.conditions.currentlyRaining).toBe(true);
+  });
+
+  it('currentlyRaining is false when hourly forecast says no rain', async () => {
+    fetchHourlyForecast.mockResolvedValue([
+      {
+        time: new Date(),
+        windSpeedMph: 10,
+        windDirectionDeg: 45,
+        precipProbability: 0,
+        isRaining: false,
+        isDaytime: true,
+        shortForecast: 'Clear',
+      },
+    ]);
+
+    const result = await fetchAllConditions();
+    expect(result.conditions.currentlyRaining).toBe(false);
+  });
+
+  it('returns forecastScores array from hourly forecast', async () => {
+    fetchHourlyForecast.mockResolvedValue([
+      {
+        time: new Date(Date.now() + 3600000),
+        windSpeedMph: 8,
+        windDirectionDeg: 45,
+        precipProbability: 10,
+        isRaining: false,
+        isDaytime: true,
+        shortForecast: 'Partly Cloudy',
+      },
+    ]);
+
+    const result = await fetchAllConditions();
+    expect(result.forecastScores).toBeDefined();
+    expect(Array.isArray(result.forecastScores)).toBe(true);
+  });
+
+  it('returns zoneForecastScores object from hourly forecast', async () => {
+    fetchHourlyForecast.mockResolvedValue([
+      {
+        time: new Date(Date.now() + 3600000),
+        windSpeedMph: 8,
+        windDirectionDeg: 45,
+        precipProbability: 10,
+        isRaining: false,
+        isDaytime: true,
+        shortForecast: 'Partly Cloudy',
+      },
+    ]);
+
+    const result = await fetchAllConditions();
+    expect(result.zoneForecastScores).toBeDefined();
+    expect(typeof result.zoneForecastScores).toBe('object');
+  });
+
+  it('returns empty forecastScores when hourly forecast fails', async () => {
+    fetchHourlyForecast.mockRejectedValue(new Error('fail'));
+
+    const result = await fetchAllConditions();
+    expect(result.forecastScores).toEqual([]);
+    expect(result.zoneForecastScores).toEqual({});
+  });
+
+  it('uses buoy null wind as no fallback when buoy wind is null', async () => {
+    fetchCurrentWind.mockRejectedValue(new Error('NWS down'));
+    fetchBuoyData.mockResolvedValue({
+      waveHeight: 3.0,
+      dominantPeriod: 12,
+      meanDirection: 190,
+      waterTemp: 77.5,
+      windSpeed: null, // null wind from buoy
+      windDirection: null,
+      time: new Date(),
+      stationId: '51213',
+    });
+
+    const result = await fetchAllConditions();
+    // buoy wind is null, so should use hardcoded fallback
+    expect(result.conditions.windSpeedMph).toBe(10);
+    expect(result.conditions.windDirectionDeg).toBe(45);
+  });
+
+  it('handles buoy with null wave values using fallback', async () => {
+    fetchBuoyData.mockResolvedValue({
+      waveHeight: null,
+      dominantPeriod: null,
+      meanDirection: null,
+      waterTemp: null,
+      windSpeed: null,
+      windDirection: null,
+      time: new Date(),
+      stationId: '51213',
+    });
+
+    const result = await fetchAllConditions();
+    // Should use ?? fallback values
+    expect(result.conditions.swellHeightFt).toBe(2); // ?? 2
+    expect(result.conditions.swellPeriodSec).toBe(10); // ?? 10
+    expect(result.conditions.swellDirectionDeg).toBe(180); // ?? 180
+  });
+
+  it('only one tide error when predictions fail but extremes succeed', async () => {
+    fetchTidePredictions.mockRejectedValue(new Error('predictions fail'));
+    // extremes succeed
+    fetchTideExtremes.mockResolvedValue(MOCK_EXTREMES);
+
+    const result = await fetchAllConditions();
+    expect(result.errors.some((e) => e.source === 'tides')).toBe(true);
+  });
+
+  it('includes hourlyForecast in result when available', async () => {
+    const mockHourly = [
+      {
+        time: new Date(),
+        windSpeedMph: 10,
+        windDirectionDeg: 45,
+        precipProbability: 0,
+        isRaining: false,
+        isDaytime: true,
+        shortForecast: 'Clear',
+      },
+    ];
+    fetchHourlyForecast.mockResolvedValue(mockHourly);
+
+    const result = await fetchAllConditions();
+    expect(result.hourlyForecast).toEqual(mockHourly);
   });
 });

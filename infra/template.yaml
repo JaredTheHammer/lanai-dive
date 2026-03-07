@@ -28,8 +28,18 @@ Parameters:
     Description: VAPID private key for Web Push (base64url)
   VapidSubject:
     Type: String
-    Default: 'mailto:jared.m.hamm@gmail.com'
+    Default: 'mailto:contact@lanaidive.app'
     Description: VAPID subject (mailto or URL)
+  AllowedOrigin:
+    Type: String
+    Default: '*'
+    Description: >
+      Allowed CORS origin (e.g. https://dive.lanai.app).
+      Set to your deployment domain in production.
+  ContactEmail:
+    Type: String
+    Default: 'contact@lanaidive.app'
+    Description: Contact email used in API User-Agent headers
   Stage:
     Type: String
     Default: prod
@@ -191,6 +201,8 @@ Resources:
       Environment:
         Variables:
           STAGE: !Ref Stage
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+          CONTACT_EMAIL: !Ref ContactEmail
 
   ApiProxyFunctionUrl:
     Type: AWS::Lambda::Url
@@ -198,7 +210,7 @@ Resources:
       TargetFunctionArn: !GetAtt ApiProxyFunction.Arn
       AuthType: NONE
       Cors:
-        AllowOrigins: ['*']
+        AllowOrigins: [!Ref AllowedOrigin]
         AllowMethods: ['GET']
         AllowHeaders: ['Content-Type']
 
@@ -279,6 +291,7 @@ Resources:
         Variables:
           TABLE_NAME: !Ref PushSubscriptionsTable
           VAPID_PUBLIC_KEY: !Ref VapidPublicKey
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
           STAGE: !Ref Stage
       Policies:
         - DynamoDBCrudPolicy:
@@ -290,7 +303,7 @@ Resources:
       TargetFunctionArn: !GetAtt PushSubscribeFunction.Arn
       AuthType: NONE
       Cors:
-        AllowOrigins: ['*']
+        AllowOrigins: [!Ref AllowedOrigin]
         AllowMethods: ['POST', 'DELETE']
         AllowHeaders: ['Content-Type']
 

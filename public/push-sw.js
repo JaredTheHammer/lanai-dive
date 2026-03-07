@@ -33,9 +33,7 @@ self.addEventListener('push', (event) => {
     ],
   };
 
-  event.waitUntil(
-    self.registration.showNotification(payload.title || 'Lanai Dive', options)
-  );
+  event.waitUntil(self.registration.showNotification(payload.title || 'Lanai Dive', options));
 });
 
 self.addEventListener('notificationclick', (event) => {
@@ -43,7 +41,15 @@ self.addEventListener('notificationclick', (event) => {
 
   if (event.action === 'dismiss') return;
 
-  const urlToOpen = event.notification.data?.url || '/';
+  // Validate URL is same-origin to prevent open redirect attacks
+  const rawUrl = event.notification.data?.url || '/';
+  let urlToOpen = '/';
+  try {
+    const parsed = new URL(rawUrl, self.location.origin);
+    urlToOpen = parsed.origin === self.location.origin ? parsed.href : '/';
+  } catch {
+    urlToOpen = '/';
+  }
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
@@ -55,6 +61,6 @@ self.addEventListener('notificationclick', (event) => {
       }
       // Open new window
       return self.clients.openWindow(urlToOpen);
-    })
+    }),
   );
 });

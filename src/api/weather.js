@@ -7,26 +7,40 @@
  * Lambda proxy in production).
  */
 
-import { API_BASE, LANAI_LAT, LANAI_LON } from './config.js';
+import { API_BASE, LANAI_LAT, LANAI_LON, MM_TO_IN } from './config.js';
 
-let cachedGridpoint = null;
+let gridpointPromise = null;
 
 /**
  * Resolve the NWS gridpoint for Lanai coordinates.
- * Caches the result since it doesn't change.
+ * Caches the promise so concurrent callers share a single request.
+ * Clears the cache on failure so the next call retries.
  */
 async function getGridpoint() {
-  if (cachedGridpoint) return cachedGridpoint;
+  if (!gridpointPromise) {
+    gridpointPromise = (async () => {
+      const res = await fetch(`${API_BASE}/api/weather/points/${LANAI_LAT},${LANAI_LON}`, {
+        headers: { Accept: 'application/geo+json' },
+      });
+      if (!res.ok) throw new Error(`NWS points API error: ${res.status}`);
 
-  const res = await fetch(`${API_BASE}/api/weather/points/${LANAI_LAT},${LANAI_LON}`, {
-    headers: { Accept: 'application/geo+json' }
-  });
-  if (!res.ok) throw new Error(`NWS points API error: ${res.status}`);
-
-  const data = await res.json();
-  const { gridId, gridX, gridY } = data.properties;
-  cachedGridpoint = { gridId, gridX, gridY };
-  return cachedGridpoint;
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error('NWS points API returned non-JSON response');
+      }
+      const props = data.properties;
+      if (!props || !props.gridId || props.gridX == null || props.gridY == null) {
+        throw new Error('NWS points API returned unexpected response shape');
+      }
+      return { gridId: props.gridId, gridX: props.gridX, gridY: props.gridY };
+    })().catch((err) => {
+      gridpointPromise = null; // Allow retry on next call
+      throw err;
+    });
+  }
+  return gridpointPromise;
 }
 
 /**
@@ -46,14 +60,19 @@ export async function fetchHourlyForecast() {
 
   const res = await fetch(
     `${API_BASE}/api/weather/gridpoints/${gridId}/${gridX},${gridY}/forecast/hourly`,
-    { headers: { Accept: 'application/geo+json' } }
+    { headers: { Accept: 'application/geo+json' } },
   );
   if (!res.ok) throw new Error(`NWS hourly forecast error: ${res.status}`);
 
-  const data = await res.json();
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error('NWS hourly forecast returned non-JSON response');
+  }
   const periods = data.properties?.periods || [];
 
-  return periods.map(p => ({
+  return periods.map((p) => ({
     time: new Date(p.startTime),
     windSpeedMph: parseWindSpeed(p.windSpeed),
     windDirectionDeg: compassToDegrees(p.windDirection),
@@ -62,24 +81,31 @@ export async function fetchHourlyForecast() {
     precipProbability: p.probabilityOfPrecipitation?.value || 0,
     shortForecast: p.shortForecast,
     isRaining: isRainForecast(p.shortForecast),
-    isDaytime: p.isDaytime
+    isDaytime: p.isDaytime,
   }));
 }
 
 /**
  * Fetch detailed grid data for precipitation amounts.
- * Returns { rain24h, rain48h, currentlyRaining }
+ * Returns { rain24h, rain48h }
+ *
+ * Note: currentlyRaining is derived from hourly forecast in fetchAllConditions
+ * to avoid a redundant fetch of the hourly endpoint.
  */
 export async function fetchPrecipitation() {
   const { gridId, gridX, gridY } = await getGridpoint();
 
-  const res = await fetch(
-    `${API_BASE}/api/weather/gridpoints/${gridId}/${gridX},${gridY}`,
-    { headers: { Accept: 'application/geo+json' } }
-  );
+  const res = await fetch(`${API_BASE}/api/weather/gridpoints/${gridId}/${gridX},${gridY}`, {
+    headers: { Accept: 'application/geo+json' },
+  });
   if (!res.ok) throw new Error(`NWS gridpoint data error: ${res.status}`);
 
-  const data = await res.json();
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error('NWS gridpoint data returned non-JSON response');
+  }
   const precip = data.properties?.quantitativePrecipitation?.values || [];
 
   const now = Date.now();
@@ -90,25 +116,15 @@ export async function fetchPrecipitation() {
   let rain48h = 0;
 
   for (const v of precip) {
+    if (!v.validTime || typeof v.validTime !== 'string') continue;
     const t = new Date(v.validTime.split('/')[0]).getTime();
-    const amount = (v.value || 0) / 25.4; // mm to inches
+    if (isNaN(t)) continue; // Skip malformed timestamps
+    const amount = (v.value || 0) / MM_TO_IN;
     if (t >= h24) rain24h += amount;
     if (t >= h48) rain48h += amount;
   }
 
-  // Check current conditions from hourly forecast
-  let currentlyRaining = false;
-  try {
-    const hourly = await fetchHourlyForecast();
-    const current = hourly[0];
-    if (current) {
-      currentlyRaining = current.isRaining;
-    }
-  } catch {
-    // Non-critical
-  }
-
-  return { rain24h, rain48h, currentlyRaining };
+  return { rain24h, rain48h };
 }
 
 /**
@@ -121,7 +137,7 @@ export async function fetchCurrentWind() {
   return {
     speedMph: current.windSpeedMph,
     directionDeg: current.windDirectionDeg,
-    forecast: current.shortForecast
+    forecast: current.shortForecast,
   };
 }
 
@@ -139,10 +155,22 @@ function parseWindSpeed(windStr) {
 }
 
 const COMPASS_MAP = {
-  N: 0, NNE: 22.5, NE: 45, ENE: 67.5,
-  E: 90, ESE: 112.5, SE: 135, SSE: 157.5,
-  S: 180, SSW: 202.5, SW: 225, WSW: 247.5,
-  W: 270, WNW: 292.5, NW: 315, NNW: 337.5
+  N: 0,
+  NNE: 22.5,
+  NE: 45,
+  ENE: 67.5,
+  E: 90,
+  ESE: 112.5,
+  SE: 135,
+  SSE: 157.5,
+  S: 180,
+  SSW: 202.5,
+  SW: 225,
+  WSW: 247.5,
+  W: 270,
+  WNW: 292.5,
+  NW: 315,
+  NNW: 337.5,
 };
 
 function compassToDegrees(dir) {

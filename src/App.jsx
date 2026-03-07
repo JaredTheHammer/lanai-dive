@@ -8,7 +8,10 @@ const MapView = React.lazy(() => import('./components/MapView.jsx'));
 const ComparisonView = React.lazy(() => import('./components/ComparisonView.jsx'));
 import { fetchAllConditions } from './api/index.js';
 import { REFRESH_INTERVAL_MS } from './api/config.js';
-import useOfflineStatus, { cacheConditions, restoreCachedConditions } from './hooks/useOfflineStatus.js';
+import useOfflineStatus, {
+  cacheConditions,
+  restoreCachedConditions,
+} from './hooks/useOfflineStatus.js';
 import useNotifications from './hooks/useNotifications.js';
 import useTrendHistory from './hooks/useTrendHistory.js';
 
@@ -18,6 +21,7 @@ export default function App() {
   const [error, setError] = useState(null);
   const [currentView, setCurrentView] = useState('dashboard');
   const [showNotifSettings, setShowNotifSettings] = useState(false);
+  const [initialZoneId, setInitialZoneId] = useState(null);
 
   const { isOffline, isStale, staleSummary } = useOfflineStatus(data?.fetchedAt);
   const notif = useNotifications();
@@ -35,6 +39,12 @@ export default function App() {
     }
   }, []);
 
+  // Keep stable refs for values used inside refresh to avoid re-render loops
+  const notifRef = useRef(notif);
+  notifRef.current = notif;
+  const trendsRef = useRef(trends);
+  trendsRef.current = trends;
+
   const refresh = useCallback(async () => {
     // Skip fetch attempt if offline (keep showing cached data)
     if (!navigator.onLine) {
@@ -49,7 +59,7 @@ export default function App() {
 
       // Check for notification triggers before updating state
       if (prevDataRef.current) {
-        notif.checkAndNotify(prevDataRef.current, result);
+        notifRef.current.checkAndNotify(prevDataRef.current, result);
       }
 
       prevDataRef.current = result;
@@ -57,22 +67,25 @@ export default function App() {
       // Persist to localStorage for offline use
       cacheConditions(result);
       // Record snapshot for trend history
-      trends.recordSnapshot(result);
+      trendsRef.current.recordSnapshot(result);
     } catch (err) {
       console.error('Failed to fetch conditions:', err);
       setError(err.message);
       // If we have no data at all, try restoring cache
-      if (!data) {
-        const cached = restoreCachedConditions();
-        if (cached) {
-          setData(cached);
-          prevDataRef.current = cached;
+      setData((prev) => {
+        if (!prev) {
+          const cached = restoreCachedConditions();
+          if (cached) {
+            prevDataRef.current = cached;
+            return cached;
+          }
         }
-      }
+        return prev;
+      });
     } finally {
       setLoading(false);
     }
-  }, [data, notif]);
+  }, []);
 
   // Initial fetch + auto-refresh
   useEffect(() => {
@@ -125,7 +138,7 @@ export default function App() {
               data={data}
               zoneForecastScores={data?.zoneForecastScores}
               onSelectZone={(zoneId) => {
-                // Switch to map view centered on the selected zone
+                setInitialZoneId(zoneId);
                 setCurrentView('map');
               }}
             />
@@ -136,7 +149,7 @@ export default function App() {
       {currentView === 'map' && (
         <Suspense fallback={<LoadingFallback />}>
           {data ? (
-            <MapView data={data} />
+            <MapView data={data} initialZoneId={initialZoneId} />
           ) : loading ? (
             <LoadingFallback />
           ) : null}
@@ -149,7 +162,8 @@ export default function App() {
           <div className="text-4xl mb-4">📡</div>
           <h2 className="text-lg font-bold mb-2">No Connection</h2>
           <p className="text-sm text-white/50 max-w-xs">
-            You're offline and no cached data is available. Connect to the internet and tap refresh to load conditions.
+            You're offline and no cached data is available. Connect to the internet and tap refresh
+            to load conditions.
           </p>
           <button
             onClick={refresh}

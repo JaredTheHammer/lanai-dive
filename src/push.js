@@ -101,11 +101,14 @@ export async function unsubscribeFromPush() {
 
       // Notify backend
       if (PUSH_URL) {
-        await fetch(PUSH_URL, {
+        const res = await fetch(PUSH_URL, {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ endpoint }),
         });
+        if (!res.ok) {
+          console.error(`Backend unsubscribe returned ${res.status}`);
+        }
       }
 
       console.log('Push subscription removed');
@@ -127,7 +130,7 @@ export async function updatePushPrefs(prefs) {
     const subscription = await registration.pushManager.getSubscription();
 
     if (subscription) {
-      await fetch(PUSH_URL, {
+      const res = await fetch(PUSH_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -135,6 +138,9 @@ export async function updatePushPrefs(prefs) {
           prefs,
         }),
       });
+      if (!res.ok) {
+        console.error(`Push prefs update returned ${res.status}`);
+      }
     }
   } catch (err) {
     console.error('Push prefs update failed:', err);

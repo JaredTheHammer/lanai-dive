@@ -20,3 +20,10 @@ export const LANAI_LON = -156.92;
 
 // Polling intervals
 export const REFRESH_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+
+// Unit conversion factors
+export const M_TO_FT = 3.28084;
+export const MM_TO_IN = 25.4;
+export const MS_TO_MPH = 2.23694;
+export const C_TO_F_RATIO = 9 / 5;
+export const C_TO_F_OFFSET = 32;

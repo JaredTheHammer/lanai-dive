@@ -13,7 +13,7 @@
  *   - Resolution: 0.05 deg (~5.5 km), hourly
  */
 
-import { API_BASE } from './config.js';
+import { API_BASE, M_TO_FT } from './config.js';
 
 const LANAI_LAT = 20.83;
 const LANAI_LON_360 = 203.08; // 360-format longitude
@@ -34,7 +34,7 @@ const CACHE_TTL = 2 * 3600_000;
  */
 export async function fetchSwellForecast() {
   const now = Date.now();
-  if (cache.data && (now - cache.timestamp) < CACHE_TTL) {
+  if (cache.data && now - cache.timestamp < CACHE_TTL) {
     return cache.data;
   }
 
@@ -44,9 +44,7 @@ export async function fetchSwellForecast() {
   const latRange = `(${LAT_MIN}):(${LAT_MAX})`;
   const lonRange = `(${LON_MIN}):(${LON_MAX})`;
 
-  const fields = vars.map(v =>
-    `${v}[${timeRange}]${depth}[${latRange}][${lonRange}]`
-  ).join(',');
+  const fields = vars.map((v) => `${v}[${timeRange}]${depth}[${latRange}][${lonRange}]`).join(',');
 
   const url = `${API_BASE}/api/erddap/griddap/ww3_hawaii.csv?${fields}`;
 
@@ -114,7 +112,7 @@ function parseErddapCsv(text) {
 
     result.push({
       time: new Date(timeStr),
-      height: avgHeight * 3.28084, // meters to feet
+      height: avgHeight * M_TO_FT,
       period: avgPeriod,
       direction: avgDir,
     });
@@ -129,12 +127,14 @@ function parseErddapCsv(text) {
  * Circular mean for angles (degrees).
  */
 function circularMean(angles) {
-  let sinSum = 0, cosSum = 0;
+  if (!angles.length) return 0;
+  let sinSum = 0,
+    cosSum = 0;
   for (const a of angles) {
-    const rad = a * Math.PI / 180;
+    const rad = (a * Math.PI) / 180;
     sinSum += Math.sin(rad);
     cosSum += Math.cos(rad);
   }
-  const mean = Math.atan2(sinSum / angles.length, cosSum / angles.length) * 180 / Math.PI;
+  const mean = (Math.atan2(sinSum / angles.length, cosSum / angles.length) * 180) / Math.PI;
   return (mean + 360) % 360;
 }
