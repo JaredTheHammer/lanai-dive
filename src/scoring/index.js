@@ -27,6 +27,27 @@ const WEIGHTS = {
   visibility: 0.15,
 };
 
+/** Visibility sub-factor weights (within the visibility score calculation). */
+const VIS_WEIGHTS = { rain: 0.4, swell: 0.3, wind: 0.15, tide: 0.15 };
+
+/** Score thresholds for label tiers (used across all factor and overall labels). */
+const SCORE_EXCELLENT = 80;
+const SCORE_GOOD = 60;
+const SCORE_FAIR = 40;
+const SCORE_POOR = 20;
+
+/** Precipitation probability thresholds for forecast rain estimation. */
+const PRECIP_PROB_LIKELY = 60;
+const PRECIP_PROB_CHANCE = 30;
+
+/** Estimated rain amounts (inches) when probability exceeds thresholds. */
+const PRECIP_EST_LIKELY = 0.3;
+const PRECIP_EST_CHANCE = 0.1;
+
+/** Decay multipliers applied to existing rain totals in future forecasts. */
+const RAIN_DECAY_24H = 0.5;
+const RAIN_DECAY_48H = 0.3;
+
 /**
  * Lanai south/west shore: typical dive sites face south (180) and west (270).
  * Offshore winds for these shores blow from N/NE (trade winds).
@@ -56,11 +77,7 @@ export function scoreWind(speedMph, directionDeg) {
   const score = clamp(base + offshoreBonus, 0, 100);
 
   const compassDir = degreesToCompass(directionDeg);
-  let label;
-  if (score >= 80) label = 'Light / Offshore';
-  else if (score >= 60) label = 'Moderate';
-  else if (score >= 40) label = 'Choppy';
-  else label = 'Strong / Onshore';
+  const label = windLabel(score);
 
   return {
     score: Math.round(score),
@@ -90,11 +107,7 @@ export function scoreSwell(heightFt, periodSec, directionDeg) {
 
   const score = clamp(base + periodMod + dirMod, 0, 100);
 
-  let label;
-  if (score >= 80) label = 'Flat / Clean';
-  else if (score >= 60) label = 'Small Swell';
-  else if (score >= 40) label = 'Moderate Surf';
-  else label = 'High Surf';
+  const label = swellLabel(score);
 
   return {
     score: Math.round(score),
@@ -225,20 +238,23 @@ export function scoreVisibility({ swellScore, rainScore, windScore, tideScore })
   //   3. Wind -- surface chop scatters light
   //   4. Tide -- current can carry turbid water
   const score = Math.round(
-    rainScore * 0.4 + swellScore * 0.3 + windScore * 0.15 + tideScore * 0.15,
+    rainScore * VIS_WEIGHTS.rain +
+      swellScore * VIS_WEIGHTS.swell +
+      windScore * VIS_WEIGHTS.wind +
+      tideScore * VIS_WEIGHTS.tide,
   );
 
   let label, detail;
-  if (score >= 80) {
+  if (score >= SCORE_EXCELLENT) {
     label = 'Excellent';
     detail = '60-100+ ft estimated';
-  } else if (score >= 60) {
+  } else if (score >= SCORE_GOOD) {
     label = 'Good';
     detail = '30-60 ft estimated';
-  } else if (score >= 40) {
+  } else if (score >= SCORE_FAIR) {
     label = 'Fair';
     detail = '15-30 ft estimated';
-  } else if (score >= 20) {
+  } else if (score >= SCORE_POOR) {
     label = 'Poor';
     detail = '5-15 ft estimated';
   } else {
@@ -363,6 +379,20 @@ function degreesToCompass(deg) {
   return dirs[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
 }
 
+function windLabel(score) {
+  if (score >= SCORE_EXCELLENT) return 'Light / Offshore';
+  if (score >= SCORE_GOOD) return 'Moderate';
+  if (score >= SCORE_FAIR) return 'Choppy';
+  return 'Strong / Onshore';
+}
+
+function swellLabel(score) {
+  if (score >= SCORE_EXCELLENT) return 'Flat / Clean';
+  if (score >= SCORE_GOOD) return 'Small Swell';
+  if (score >= SCORE_FAIR) return 'Moderate Surf';
+  return 'High Surf';
+}
+
 /**
  * How offshore is the wind for Lanai's south/west shores?
  * Returns -10 to +10 modifier.
@@ -406,10 +436,10 @@ function angleDiff(a, b) {
 }
 
 export function getOverallLabel(score) {
-  if (score >= 80) return { label: 'Excellent', color: '#22c55e', emoji: '\u{1F91F}' };
-  if (score >= 60) return { label: 'Good', color: '#84cc16', emoji: '\u{1F44D}' };
-  if (score >= 40) return { label: 'Fair', color: '#eab308', emoji: '\u{1F914}' };
-  if (score >= 20) return { label: 'Poor', color: '#f97316', emoji: '\u26A0\uFE0F' };
+  if (score >= SCORE_EXCELLENT) return { label: 'Excellent', color: '#22c55e', emoji: '\u{1F91F}' };
+  if (score >= SCORE_GOOD) return { label: 'Good', color: '#84cc16', emoji: '\u{1F44D}' };
+  if (score >= SCORE_FAIR) return { label: 'Fair', color: '#eab308', emoji: '\u{1F914}' };
+  if (score >= SCORE_POOR) return { label: 'Poor', color: '#f97316', emoji: '\u26A0\uFE0F' };
   return { label: 'Dangerous', color: '#ef4444', emoji: '\u{1F6AB}' };
 }
 
@@ -502,11 +532,7 @@ function scoreWindForZone(speedMph, directionDeg, zoneOffshoreDir) {
   const score = clamp(base + offshoreBonus, 0, 100);
 
   const compassDir = degreesToCompass(directionDeg);
-  let label;
-  if (score >= 80) label = 'Light / Offshore';
-  else if (score >= 60) label = 'Moderate';
-  else if (score >= 40) label = 'Choppy';
-  else label = 'Strong / Onshore';
+  const label = windLabel(score);
 
   return {
     score: Math.round(score),
@@ -531,11 +557,7 @@ function scoreSwellForZone(heightFt, periodSec, directionDeg, zoneFaceDir) {
 
   const score = clamp(base + periodMod + dirMod, 0, 100);
 
-  let label;
-  if (score >= 80) label = 'Flat / Clean';
-  else if (score >= 60) label = 'Small Swell';
-  else if (score >= 40) label = 'Moderate Surf';
-  else label = 'High Surf';
+  const label = swellLabel(score);
 
   return {
     score: Math.round(score),
@@ -545,4 +567,19 @@ function scoreSwellForZone(heightFt, periodSec, directionDeg, zoneFaceDir) {
   };
 }
 
-export { WEIGHTS, scoreWindForZone, scoreSwellForZone };
+export {
+  WEIGHTS,
+  VIS_WEIGHTS,
+  SCORE_EXCELLENT,
+  SCORE_GOOD,
+  SCORE_FAIR,
+  SCORE_POOR,
+  PRECIP_PROB_LIKELY,
+  PRECIP_PROB_CHANCE,
+  PRECIP_EST_LIKELY,
+  PRECIP_EST_CHANCE,
+  RAIN_DECAY_24H,
+  RAIN_DECAY_48H,
+  scoreWindForZone,
+  scoreSwellForZone,
+};

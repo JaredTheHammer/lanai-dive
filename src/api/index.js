@@ -11,6 +11,12 @@ import {
   computeZoneScores,
   scoreWindForZone,
   scoreSwellForZone,
+  PRECIP_PROB_LIKELY,
+  PRECIP_PROB_CHANCE,
+  PRECIP_EST_LIKELY,
+  PRECIP_EST_CHANCE,
+  RAIN_DECAY_24H,
+  RAIN_DECAY_48H,
 } from '../scoring/index.js';
 import { LANAI_ZONES } from '../data/zones.js';
 import { getMoonPhase } from './moonphase.js';
@@ -250,7 +256,12 @@ function computeForecastTimeline(
     );
 
     // Estimate rain at this hour from precip probability
-    const precipEst = hour.precipProbability > 60 ? 0.3 : hour.precipProbability > 30 ? 0.1 : 0;
+    const precipEst =
+      hour.precipProbability > PRECIP_PROB_LIKELY
+        ? PRECIP_EST_LIKELY
+        : hour.precipProbability > PRECIP_PROB_CHANCE
+          ? PRECIP_EST_CHANCE
+          : 0;
 
     const conditions = {
       windSpeedMph: hour.windSpeedMph,
@@ -261,8 +272,8 @@ function computeForecastTimeline(
       tideLevel,
       tideRate,
       nextSlack,
-      rain24h: precipEst + currentPrecip.rain24h * 0.5, // Decay previous rain
-      rain48h: precipEst + currentPrecip.rain48h * 0.3,
+      rain24h: precipEst + currentPrecip.rain24h * RAIN_DECAY_24H, // Decay previous rain
+      rain48h: precipEst + currentPrecip.rain48h * RAIN_DECAY_48H,
       currentlyRaining: hour.isRaining,
     };
 
@@ -307,7 +318,12 @@ function computeZoneForecastTimeline(
       tideExtremes,
     );
 
-    const precipEst = hour.precipProbability > 60 ? 0.3 : hour.precipProbability > 30 ? 0.1 : 0;
+    const precipEst =
+      hour.precipProbability > PRECIP_PROB_LIKELY
+        ? PRECIP_EST_LIKELY
+        : hour.precipProbability > PRECIP_PROB_CHANCE
+          ? PRECIP_EST_CHANCE
+          : 0;
 
     const conditions = {
       windSpeedMph: hour.windSpeedMph,
@@ -318,8 +334,8 @@ function computeZoneForecastTimeline(
       tideLevel,
       tideRate,
       nextSlack,
-      rain24h: precipEst + currentPrecip.rain24h * 0.5,
-      rain48h: precipEst + currentPrecip.rain48h * 0.3,
+      rain24h: precipEst + currentPrecip.rain24h * RAIN_DECAY_24H,
+      rain48h: precipEst + currentPrecip.rain48h * RAIN_DECAY_48H,
       currentlyRaining: hour.isRaining,
     };
 

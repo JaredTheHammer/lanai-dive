@@ -6,7 +6,14 @@
  * Format reference: https://www.ndbc.noaa.gov/measdes.shtml
  */
 
-import { API_BASE, BUOY_STATION } from './config.js';
+import {
+  API_BASE,
+  BUOY_STATION,
+  M_TO_FT,
+  C_TO_F_RATIO,
+  C_TO_F_OFFSET,
+  MS_TO_MPH,
+} from './config.js';
 
 /**
  * Fetch latest buoy observations.
@@ -57,7 +64,7 @@ export async function fetchBuoyData() {
 
   // Wave height in meters -> feet
   const wvhtM = getVal('WVHT');
-  const waveHeight = wvhtM !== null ? wvhtM * 3.28084 : null;
+  const waveHeight = wvhtM !== null ? wvhtM * M_TO_FT : null;
 
   // Dominant period (seconds)
   const dominantPeriod = getVal('DPD');
@@ -67,11 +74,11 @@ export async function fetchBuoyData() {
 
   // Water temperature (C -> F)
   const wtmpC = getVal('WTMP');
-  const waterTemp = wtmpC !== null ? wtmpC * 9 / 5 + 32 : null;
+  const waterTemp = wtmpC !== null ? wtmpC * C_TO_F_RATIO + C_TO_F_OFFSET : null;
 
   // Wind (backup source if NWS is down)
   const wspdMs = getVal('WSPD');
-  const windSpeed = wspdMs !== null ? wspdMs * 2.23694 : null; // m/s -> mph
+  const windSpeed = wspdMs !== null ? wspdMs * MS_TO_MPH : null;
   const windDirection = getVal('WDIR');
 
   return {
@@ -82,7 +89,7 @@ export async function fetchBuoyData() {
     windSpeed,
     windDirection,
     time,
-    stationId: BUOY_STATION
+    stationId: BUOY_STATION,
   };
 }
 

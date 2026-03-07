@@ -13,7 +13,7 @@
  *   - Resolution: 0.05 deg (~5.5 km), hourly
  */
 
-import { API_BASE } from './config.js';
+import { API_BASE, M_TO_FT } from './config.js';
 
 const LANAI_LAT = 20.83;
 const LANAI_LON_360 = 203.08; // 360-format longitude
@@ -112,7 +112,7 @@ function parseErddapCsv(text) {
 
     result.push({
       time: new Date(timeStr),
-      height: avgHeight * 3.28084, // meters to feet
+      height: avgHeight * M_TO_FT,
       period: avgPeriod,
       direction: avgDir,
     });

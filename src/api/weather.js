@@ -7,7 +7,7 @@
  * Lambda proxy in production).
  */
 
-import { API_BASE, LANAI_LAT, LANAI_LON } from './config.js';
+import { API_BASE, LANAI_LAT, LANAI_LON, MM_TO_IN } from './config.js';
 
 let gridpointPromise = null;
 
@@ -119,7 +119,7 @@ export async function fetchPrecipitation() {
     if (!v.validTime || typeof v.validTime !== 'string') continue;
     const t = new Date(v.validTime.split('/')[0]).getTime();
     if (isNaN(t)) continue; // Skip malformed timestamps
-    const amount = (v.value || 0) / 25.4; // mm to inches
+    const amount = (v.value || 0) / MM_TO_IN;
     if (t >= h24) rain24h += amount;
     if (t >= h48) rain48h += amount;
   }
