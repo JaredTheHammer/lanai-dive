@@ -193,6 +193,43 @@ export async function fetchAllConditions() {
 }
 
 /**
+ * Interpolate tide level and rate at a given timestamp from prediction data.
+ * Returns { tideLevel, tideRate, nextSlack }.
+ */
+function interpolateTideAt(t, tidePredictions, tideExtremes) {
+  let tideLevel = 1.0,
+    tideRate = 0,
+    nextSlack = null;
+
+  if (tidePredictions.length) {
+    for (let i = 0; i < tidePredictions.length - 1; i++) {
+      if (tidePredictions[i].time.getTime() <= t && tidePredictions[i + 1].time.getTime() > t) {
+        const frac =
+          (t - tidePredictions[i].time.getTime()) /
+          (tidePredictions[i + 1].time.getTime() - tidePredictions[i].time.getTime());
+        tideLevel =
+          tidePredictions[i].height +
+          frac * (tidePredictions[i + 1].height - tidePredictions[i].height);
+        const dt =
+          (tidePredictions[i + 1].time.getTime() - tidePredictions[i].time.getTime()) / 3600000;
+        tideRate = dt > 0 ? (tidePredictions[i + 1].height - tidePredictions[i].height) / dt : 0;
+        break;
+      }
+    }
+    nextSlack = tideExtremes.find((e) => e.time.getTime() > t);
+    if (nextSlack) {
+      nextSlack = {
+        time: nextSlack.time,
+        type: nextSlack.type === 'H' ? 'high' : 'low',
+        level: nextSlack.height,
+      };
+    }
+  }
+
+  return { tideLevel, tideRate, nextSlack };
+}
+
+/**
  * Project dive scores into the future based on hourly forecast data.
  * Returns array of { time, score, label, color } for the next 48 hours.
  */
@@ -206,35 +243,11 @@ function computeForecastTimeline(
   if (!hourlyForecast.length) return [];
 
   return hourlyForecast.slice(0, 48).map((hour) => {
-    // Find tide state at this hour
-    let tideLevel = 1.0,
-      tideRate = 0,
-      nextSlack = null;
-    if (tidePredictions.length) {
-      const t = hour.time.getTime();
-      for (let i = 0; i < tidePredictions.length - 1; i++) {
-        if (tidePredictions[i].time.getTime() <= t && tidePredictions[i + 1].time.getTime() > t) {
-          const frac =
-            (t - tidePredictions[i].time.getTime()) /
-            (tidePredictions[i + 1].time.getTime() - tidePredictions[i].time.getTime());
-          tideLevel =
-            tidePredictions[i].height +
-            frac * (tidePredictions[i + 1].height - tidePredictions[i].height);
-          const dt =
-            (tidePredictions[i + 1].time.getTime() - tidePredictions[i].time.getTime()) / 3600000;
-          tideRate = dt > 0 ? (tidePredictions[i + 1].height - tidePredictions[i].height) / dt : 0;
-          break;
-        }
-      }
-      nextSlack = tideExtremes.find((e) => e.time.getTime() > t);
-      if (nextSlack) {
-        nextSlack = {
-          time: nextSlack.time,
-          type: nextSlack.type === 'H' ? 'high' : 'low',
-          level: nextSlack.height,
-        };
-      }
-    }
+    const { tideLevel, tideRate, nextSlack } = interpolateTideAt(
+      hour.time.getTime(),
+      tidePredictions,
+      tideExtremes,
+    );
 
     // Estimate rain at this hour from precip probability
     const precipEst = hour.precipProbability > 60 ? 0.3 : hour.precipProbability > 30 ? 0.1 : 0;
@@ -288,35 +301,11 @@ function computeZoneForecastTimeline(
   const hours = hourlyForecast.slice(0, 48);
 
   for (const hour of hours) {
-    // Find tide state at this hour (same logic as computeForecastTimeline)
-    let tideLevel = 1.0,
-      tideRate = 0,
-      nextSlack = null;
-    if (tidePredictions.length) {
-      const t = hour.time.getTime();
-      for (let i = 0; i < tidePredictions.length - 1; i++) {
-        if (tidePredictions[i].time.getTime() <= t && tidePredictions[i + 1].time.getTime() > t) {
-          const frac =
-            (t - tidePredictions[i].time.getTime()) /
-            (tidePredictions[i + 1].time.getTime() - tidePredictions[i].time.getTime());
-          tideLevel =
-            tidePredictions[i].height +
-            frac * (tidePredictions[i + 1].height - tidePredictions[i].height);
-          const dt =
-            (tidePredictions[i + 1].time.getTime() - tidePredictions[i].time.getTime()) / 3600000;
-          tideRate = dt > 0 ? (tidePredictions[i + 1].height - tidePredictions[i].height) / dt : 0;
-          break;
-        }
-      }
-      nextSlack = tideExtremes.find((e) => e.time.getTime() > t);
-      if (nextSlack) {
-        nextSlack = {
-          time: nextSlack.time,
-          type: nextSlack.type === 'H' ? 'high' : 'low',
-          level: nextSlack.height,
-        };
-      }
-    }
+    const { tideLevel, tideRate, nextSlack } = interpolateTideAt(
+      hour.time.getTime(),
+      tidePredictions,
+      tideExtremes,
+    );
 
     const precipEst = hour.precipProbability > 60 ? 0.3 : hour.precipProbability > 30 ? 0.1 : 0;
 
